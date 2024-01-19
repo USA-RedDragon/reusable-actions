@@ -8,9 +8,11 @@ concurrency:
   group: '${{ github.workflow }} @ ${{ github.ref }}'
   cancel-in-progress: true
 
-docker:
+jobs:
+  docker:
     uses: ./.github/workflows/docker-ci.yaml
     with:
       push: 'false'
       dockerfile: Dockerfile.test
       build-args: TEST_ARG=not
+      context: test
