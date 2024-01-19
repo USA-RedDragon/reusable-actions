@@ -57,6 +57,12 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ inputs.image-name }}
+          tags: |
+            type=schedule
+            type=ref,event=branch
+            type=ref,event=tag
+            type=ref,event=pr
+            type=sha
 
       - name: Build Docker image
         uses: docker/build-push-action@v5
