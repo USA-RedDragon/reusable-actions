@@ -1,0 +1,9 @@
+FROM alpine
+
+WORKDIR /tmp
+
+ARG TEST_ARG=default
+RUN if [ "${TEST_ARG}" = "default" ]; then exit 1; else echo "Build args passed"; fi
+
+COPY README.md .
+RUN if grep -q 'Test directory' README.md; then echo "Context works"; else exit 1; fi

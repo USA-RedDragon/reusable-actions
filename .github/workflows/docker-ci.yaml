@@ -73,4 +73,3 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             ${{ inputs.build-args }}
-            ${{ secrets.build-args }}
