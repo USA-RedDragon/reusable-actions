@@ -62,7 +62,6 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=ref,event=pr
-            type=sha
 
       - name: Build Docker image
         uses: docker/build-push-action@v5
