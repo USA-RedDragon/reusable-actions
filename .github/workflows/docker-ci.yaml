@@ -65,11 +65,13 @@ jobs:
 
       - name: Build Docker image
         uses: docker/build-push-action@v5
+        id: docker_build
         with:
           context: ${{ inputs.context }}
           push: ${{ inputs.push }}
           pull: true
           provenance: true
+          load: true
           file: ${{ inputs.dockerfile }}
           platforms: ${{ inputs.platforms }}
           tags: ${{ steps.meta.outputs.tags }}
@@ -82,7 +84,7 @@ jobs:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ github.ref_name}}
+          image-ref: ${{ steps.docker_build.outputs.imageid }}
           format: 'sarif'
           output: 'trivy-results.sarif'
 
