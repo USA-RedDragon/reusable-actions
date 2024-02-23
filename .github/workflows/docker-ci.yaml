@@ -10,7 +10,7 @@ on:
       push:
         type: string
         description: Docker push input
-        default: true
+        default: 'true'
       dockerfile:
         type: string
         description: Dockerfile path
@@ -78,3 +78,15 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             ${{ inputs.build-args }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ github.ref_name}}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
