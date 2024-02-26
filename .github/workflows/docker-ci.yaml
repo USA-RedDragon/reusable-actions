@@ -69,6 +69,7 @@ jobs:
             type=schedule
             type=ref,event=branch
             type=ref,event=pr
+            type=sha
             type=semver,pattern=v{{version}},value=${{ inputs.version }},enable=${{ inputs.version != '' }}
             type=semver,pattern=v{{major}},value=${{ inputs.version }},enable=${{ inputs.version != '' }}
             type=semver,pattern=v{{major}}.{{minor}},value=${{ inputs.version }},enable=${{ inputs.version != '' }}
