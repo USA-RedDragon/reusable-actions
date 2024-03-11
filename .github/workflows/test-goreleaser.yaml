@@ -1,0 +1,17 @@
+name: GoReleaser
+
+on:
+  pull_request:
+  push:
+
+concurrency:
+  group: '${{ github.workflow }} @ ${{ github.ref }}'
+  cancel-in-progress: true
+
+jobs:
+  goreleaser:
+    uses: ./.github/workflows/goreleaser.yaml
+    with:
+      extra-args: --skip=publish --snapshot
+    secrets:
+      token: ${{ secrets.GITHUB_TOKEN }}

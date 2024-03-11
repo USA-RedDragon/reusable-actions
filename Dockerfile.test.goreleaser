@@ -1,0 +1,4 @@
+FROM scratch
+
+COPY reusable-actions /
+ENTRYPOINT ["/reusable-actions"]
