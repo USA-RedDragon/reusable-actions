@@ -9,6 +9,10 @@ on:
       extra-args:
         type: string
         description: Extra arguments to pass to GoReleaser
+      beta:
+        type: boolean
+        description: Whether to release as a beta
+        default: false
     secrets:
       docker-hub-username:
         description: Docker Hub username
@@ -59,8 +63,30 @@ jobs:
         uses: goreleaser/goreleaser-action@v5
         with:
           version: latest
-          args: release --clean ${{ inputs.extra-args }}
+          args: release --clean ${{ inputs.beta && '--snapshot' || '' }} ${{ inputs.extra-args }}
         env:
           GITHUB_TOKEN: ${{ secrets.github_token }}
+
+      - name: Push beta image
+        if: inputs.beta
+        run: |
+          export REPO="$(tr '[[:upper:]]' '[[:lower:]]' <<< "ghcr.io/$GITHUB_REPOSITORY")"
+          IMAGES=()
+          while read -r SOURCE DEST; do
+            docker tag "$SOURCE" "$DEST"
+            docker push "$DEST"
+            IMAGES+=("$DEST")
+          done \
+            < <(docker image ls --format=json | \
+              yq --input-format=json --output-format=tsv '
+                select(.Repository == strenv(REPO)) |
+                [
+                  .Repository + ":" + .Tag,
+                  .Repository + ":beta-" + (.Tag | sub(".*-", ""))
+                ]
+              ')
+
+          docker manifest create "$REPO:beta" "${IMAGES[@]}"
+          docker manifest push "$REPO:beta"
 
       - uses: creekorful/goreportcard-action@v1.0
