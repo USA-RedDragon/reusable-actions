@@ -18,8 +18,6 @@ on:
         description: Whether to set up Node.js
         default: false
     secrets:
-      docker-hub-username:
-        description: Docker Hub username
       docker-hub-password:
         description: Docker Hub password
       token:
@@ -33,7 +31,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.ref }}
           fetch-depth: 0
 
       - name: Use Node.js
@@ -50,10 +47,10 @@ jobs:
           password: ${{ secrets.token }}
 
       - name: Log in to Docker Hub
-        if: ${{ github.event.inputs.docker-hub-username != '' }}
+        if: ${{ inputs.docker-hub-username != '' }}
         uses: docker/login-action@v1
         with:
-          username: ${{ secrets.docker-hub-username }}
+          username: ${{ inputs.docker-hub-username }}
           password: ${{ secrets.docker-hub-password }}
 
       - name: Set up Go
