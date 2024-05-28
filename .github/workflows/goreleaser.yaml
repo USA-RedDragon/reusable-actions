@@ -17,6 +17,10 @@ on:
         type: boolean
         description: Whether to set up Node.js
         default: false
+      run-before:
+        type: string
+        description: Command to run before the release
+        default: ''
     secrets:
       docker-hub-password:
         description: Docker Hub password
@@ -65,6 +69,10 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       - run: go generate ./...
+
+      - if: ${{ inputs.run-before != '' }}
+        name: Run before
+        run: ${{ inputs.run-before }}
 
       - name: Release
         uses: goreleaser/goreleaser-action@v5
