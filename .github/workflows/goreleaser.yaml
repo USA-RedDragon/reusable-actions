@@ -68,11 +68,11 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      - run: go generate ./...
-
       - if: ${{ inputs.run-before != '' }}
         name: Run before
         run: ${{ inputs.run-before }}
+
+      - run: go generate ./...
 
       - name: Release
         uses: goreleaser/goreleaser-action@v5
