@@ -81,13 +81,14 @@ jobs:
             type=semver,pattern=v{{major}}.{{minor}},event=tag,enable=${{ inputs.version == '' }}
 
       - name: Build Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         id: docker_build
         with:
           context: ${{ inputs.context }}
           push: ${{ inputs.push }}
           pull: true
-          provenance: true
+          provenance: mode=max
+          sbom: true
           file: ${{ inputs.dockerfile }}
           platforms: ${{ inputs.platforms }}
           tags: ${{ steps.meta.outputs.tags }}
