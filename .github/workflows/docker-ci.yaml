@@ -94,6 +94,7 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=sha
+            type=raw,value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.version != '' }}
             type=semver,pattern=v{{version}},value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.version != '' }}
             type=semver,pattern=v{{major}},value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.version != '' }}
             type=semver,pattern=v{{major}}.{{minor}},value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.version != '' }}
