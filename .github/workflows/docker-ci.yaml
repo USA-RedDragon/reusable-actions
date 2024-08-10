@@ -100,6 +100,12 @@ jobs:
             type=semver,pattern=v{{version}},event=tag,enable=${{ steps.version.outputs.version == '' }}
             type=semver,pattern=v{{major}},event=tag,enable=${{ steps.version.outputs.version == '' }}
             type=semver,pattern=v{{major}}.{{minor}},event=tag,enable=${{ steps.version.outputs.version == '' }}
+            type=semver,pattern={{version}},value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.version != '' }}
+            type=semver,pattern={{major}},value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.version != '' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.version != '' }}
+            type=semver,pattern={{version}},event=tag,enable=${{ steps.version.outputs.version == '' }}
+            type=semver,pattern={{major}},event=tag,enable=${{ steps.version.outputs.version == '' }}
+            type=semver,pattern={{major}}.{{minor}},event=tag,enable=${{ steps.version.outputs.version == '' }}
 
       - name: Build Docker image
         uses: docker/build-push-action@v6
