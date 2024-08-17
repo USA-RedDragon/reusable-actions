@@ -139,6 +139,7 @@ jobs:
           image-ref: ghcr.io/${{ steps.lowercase-image.outputs.IMAGE }}@${{ steps.docker_build.outputs.imageid }}
           format: 'sarif'
           ignore-unfixed: true
+          github-pat: ${{ secrets.GITHUB_TOKEN }}
           output: 'trivy-results.sarif'
 
       - name: Upload Trivy scan results to GitHub Security tab
