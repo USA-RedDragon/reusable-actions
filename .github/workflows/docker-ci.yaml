@@ -26,6 +26,10 @@ on:
         type: string
         description: Platforms to build
         default: linux/amd64,linux/arm64
+      trivy:
+        type: string
+        description: Run Trivy vulnerability scanner
+        default: 'true'
       build-args:
         type: string
         description: Docker build args
@@ -133,13 +137,12 @@ jobs:
           IMG: ${{ inputs.image-name }}
 
       - name: Run Trivy vulnerability scanner
-        if: inputs.push == 'true'
+        if: inputs.push == 'true' && inputs.trivy == 'true'
         uses: aquasecurity/trivy-action@0.17.0
         with:
           image-ref: ghcr.io/${{ steps.lowercase-image.outputs.IMAGE }}@${{ steps.docker_build.outputs.imageid }}
           format: 'sarif'
           ignore-unfixed: true
-          github-pat: ${{ secrets.GITHUB_TOKEN }}
           output: 'trivy-results.sarif'
 
       - name: Upload Trivy scan results to GitHub Security tab
