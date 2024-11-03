@@ -14,6 +14,10 @@ on:
         type: string
         description: Docker push input
         default: 'true'
+      load:
+        type: string
+        description: Load image after build
+        default: 'false'
       dockerfile:
         type: string
         description: Dockerfile path
@@ -118,6 +122,7 @@ jobs:
         with:
           context: ${{ inputs.context }}
           push: ${{ inputs.push }}
+          load: ${{ inputs.load }}
           pull: true
           provenance: mode=max
           sbom: true
