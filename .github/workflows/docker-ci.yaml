@@ -74,3 +74,15 @@ jobs:
       build-args: ${{ inputs.build-args }}
       version: ${{ inputs.version }}
       version-from-artifact: ${{ inputs.version-from-artifact }}
+
+  docker:
+    if: always()
+    runs-on: ubuntu-24.04
+    needs: [docker-runners, docker-qemu]
+    steps:
+      - name: Check at least one job succeeded
+        run: |
+          if [ "${{ needs.docker-runners.result }}" != "success" ] && [ "${{ needs.docker-qemu.result }}" != "success" ]; then
+            echo "At least one of the jobs docker-runners or docker-qemu must succeed"
+            exit 1
+          fi
