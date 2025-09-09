@@ -53,8 +53,11 @@ jobs:
 
           # Check if there are any platforms left, if so create a comma separated list
           # and add it as a string to platformsJSON
+          i=0
           if [[ ${#platforms[@]} -gt 0 ]]; then
-            platformsJSON+=','
+            if [[ $i -gt 0 ]]; then
+              platformsJSON+=','
+            fi
             platformsJSON+='"'
             for platform in "${platforms[@]}"; do
               platformsJSON+="$platform"
