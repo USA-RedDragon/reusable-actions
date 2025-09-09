@@ -42,30 +42,15 @@ jobs:
           platforms=(${platforms//,/ })
           platformsJSON='['
 
-          # Check if linux/arm64 is in the platforms list
-          # if so, remove it and add it to platformsJSON
-          for platform in "${platforms[@]}"; do
-            if [[ "$platform" == "linux/arm64" ]]; then
-              platforms=(${platforms[@]/$platform})
-              platformsJSON+='"linux/arm64"'
-            fi
-          done
-
-          # Check if there are any platforms left, if so create a comma separated list
-          # and add it as a string to platformsJSON
-          i=0
           if [[ ${#platforms[@]} -gt 0 ]]; then
-            if [[ $i -gt 0 ]]; then
-              platformsJSON+=','
-            fi
-            platformsJSON+='"'
             for platform in "${platforms[@]}"; do
+              platformsJSON+='"'
               platformsJSON+="$platform"
+              platformsJSON+='"'
               if [[ "$platform" != "${platforms[-1]}" ]]; then
                 platformsJSON+=','
               fi
             done
-            platformsJSON+='"'
           fi
 
           platformsJSON+=']'
