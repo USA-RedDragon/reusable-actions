@@ -57,7 +57,7 @@ jobs:
           echo "platforms=${platformsJSON}" >> "$GITHUB_OUTPUT"
 
   docker:
-    runs-on: ${{ contains(needs.matrix.outputs.matrix, 'linux/arm64') && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     needs: [matrix]
     strategy:
       matrix:
