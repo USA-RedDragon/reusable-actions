@@ -226,6 +226,18 @@ jobs:
             type=semver,pattern={{major}},event=tag,enable=${{ steps.version.outputs.version == '' }}
             type=semver,pattern={{major}}.{{minor}},event=tag,enable=${{ steps.version.outputs.version == '' }}
 
+      - name: Debug digests and metadata
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          echo "=== Available digest files ==="
+          ls -la
+          echo "=== Metadata JSON ==="
+          echo "$DOCKER_METADATA_OUTPUT_JSON" | jq .
+          echo "=== Image name ==="
+          echo "ghcr.io/${{ steps.lowercase-image.outputs.IMAGE }}"
+          echo "=== Constructed command ==="
+          echo "docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") $(printf 'ghcr.io/${{ steps.lowercase-image.outputs.IMAGE }}@sha256:%s ' *)"
+
       - name: Create manifest list and push
         working-directory: ${{ runner.temp }}/digests
         run: |
