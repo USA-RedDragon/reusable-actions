@@ -235,7 +235,7 @@ jobs:
         if: inputs.push == 'true' && inputs.trivy == 'true'
         uses: aquasecurity/trivy-action@0.17.0
         with:
-          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+          image-ref: ghcr.io/${{ steps.lowercase-image.outputs.IMAGE }}:${{ steps.meta.outputs.version }}
           format: 'sarif'
           ignore-unfixed: true
           output: 'trivy-results.sarif'
