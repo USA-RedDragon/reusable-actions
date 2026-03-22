@@ -233,7 +233,7 @@ jobs:
 
       - name: Run Trivy vulnerability scanner
         if: inputs.push == 'true' && inputs.trivy == 'true'
-        uses: aquasecurity/trivy-action@0.17.0
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: ghcr.io/${{ steps.lowercase-image.outputs.IMAGE }}:${{ steps.meta.outputs.version }}
           format: 'sarif'
