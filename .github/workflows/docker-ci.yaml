@@ -45,10 +45,17 @@ on:
         type: string
         description: App version from artifact name
         default: ""
+    secrets:
+      secrets:
+        description: Secrets to pass to docker/build-push-action
+        required: false
+      build-args:
+        description: Docker build args
+        required: false
 
 jobs:
   docker-runners:
-    uses: USA-RedDragon/reusable-actions/.github/workflows/docker-runners.yaml@v2
+    uses: USA-RedDragon/reusable-actions/.github/workflows/docker-runners.yaml@v2.0.18
     if: ${{ inputs.qemu-arm64 == false }}
     with:
       image-name: ${{ inputs.image-name }}
@@ -60,9 +67,13 @@ jobs:
       build-args: ${{ inputs.build-args }}
       version: ${{ inputs.version }}
       version-from-artifact: ${{ inputs.version-from-artifact }}
+    secrets:
+      secrets: ${{ secrets.secrets }}
+      build-args: ${{ secrets.build-args }}
+
 
   docker-qemu:
-    uses: USA-RedDragon/reusable-actions/.github/workflows/docker-qemu.yaml@v2
+    uses: USA-RedDragon/reusable-actions/.github/workflows/docker-qemu.yaml@v2.0.18
     if: ${{ inputs.qemu-arm64 == true }}
     with:
       image-name: ${{ inputs.image-name }}
@@ -74,6 +85,9 @@ jobs:
       build-args: ${{ inputs.build-args }}
       version: ${{ inputs.version }}
       version-from-artifact: ${{ inputs.version-from-artifact }}
+    secrets:
+      secrets: ${{ secrets.secrets }}
+      build-args: ${{ secrets.build-args }}
 
   docker:
     if: always()

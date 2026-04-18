@@ -29,6 +29,13 @@ on:
       version-from-artifact:
         type: string
         description: App version from artifact name
+    secrets:
+      secrets:
+        description: Secrets to pass to docker/build-push-action
+        required: false
+      build-args:
+        description: Docker build args
+        required: false
 
 jobs:
   docker:
@@ -119,8 +126,10 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          secrets: ${{ secrets.secrets }}
           build-args: |
             ${{ inputs.build-args }}
+            ${{ secrets.build-args }}
 
       - name: Lowercase image name
         id: lowercase-image
