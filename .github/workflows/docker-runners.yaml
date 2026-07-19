@@ -29,6 +29,10 @@ on:
       version-from-artifact:
         type: string
         description: App version from artifact name
+      layer-compression:
+        type: string
+        description: Layer compression for pushed images (gzip or zstd)
+        default: zstd
     secrets:
       secrets:
         description: Secrets to pass to docker/build-push-action
@@ -140,7 +144,7 @@ jobs:
           build-args: |
             ${{ inputs.build-args }}
             ${{ secrets.build-args }}
-          outputs: type=image,"name=ghcr.io/${{ steps.lowercase-image.outputs.IMAGE }}",push-by-digest=${{ inputs.push }},name-canonical=true,push=${{ inputs.push }}
+          outputs: type=image,"name=ghcr.io/${{ steps.lowercase-image.outputs.IMAGE }}",push-by-digest=${{ inputs.push }},name-canonical=true,push=${{ inputs.push }}${{ inputs.layer-compression == 'zstd' && ',oci-mediatypes=true,compression=zstd,compression-level=19,force-compression=true' || '' }}
 
       - name: Export digest
         run: |

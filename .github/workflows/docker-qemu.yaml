@@ -29,6 +29,10 @@ on:
       version-from-artifact:
         type: string
         description: App version from artifact name
+      layer-compression:
+        type: string
+        description: Layer compression for pushed images (gzip or zstd)
+        default: zstd
     secrets:
       secrets:
         description: Secrets to pass to docker/build-push-action
@@ -130,6 +134,7 @@ jobs:
           build-args: |
             ${{ inputs.build-args }}
             ${{ secrets.build-args }}
+          outputs: ${{ inputs.layer-compression == 'zstd' && 'type=image,oci-mediatypes=true,compression=zstd,compression-level=19,force-compression=true' || '' }}
 
       - name: Lowercase image name
         id: lowercase-image
