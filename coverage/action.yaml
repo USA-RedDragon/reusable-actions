@@ -129,9 +129,12 @@ runs:
         bash "${GITHUB_ACTION_PATH}/scripts/normalize.sh" \
           "$COVERAGE_FILE" "$FORMAT" "$STRIP_PREFIX" > "$tsv"
 
+        # The trailing newline matters: without a delimiter to stop at, `read`
+        # returns non-zero at EOF even though it assigned every variable, and
+        # `set -e` would take the whole step down with nothing printed.
         read -r total covered percent < <(awk -F'\t' '
           { t += $2; c += $3 }
-          END { printf "%d %d %.1f", t, c, t ? c * 100 / t : 0 }
+          END { printf "%d %d %.1f\n", t, c, t ? c * 100 / t : 0 }
         ' "$tsv")
 
         {
