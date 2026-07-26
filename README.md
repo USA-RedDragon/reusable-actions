@@ -1,8 +1,31 @@
 # Reusable GitHub Actions Workflows
 
-This repo contains some reusable workflows that I utilize around my repos. These are all stored in `.github/workflows/`
+This repo contains some reusable workflows that I utilize around my repos.
 
-## Actions
+## Reusable workflows
+
+Called with `uses:` at the job level. These live in `.github/workflows/`.
 
 - `docker-ci.yaml` - Docker Build and optional push to GHCR
 - `goreleaser.yaml` - Release a new version of a Go project using [goreleaser](https://goreleaser.com/)
+
+```yaml
+jobs:
+  release:
+    uses: USA-RedDragon/reusable-actions/.github/workflows/goreleaser.yaml@v2
+```
+
+## Composite actions
+
+Called with `uses:` at the step level, so they run inside a job you already
+have and can see the files it produced.
+
+- [`coverage`](coverage) - Coverage badge, baseline and pull request comment
+  from an LCOV or Go coverage report, without a third-party service
+
+```yaml
+steps:
+  - uses: USA-RedDragon/reusable-actions/coverage@v2
+    with:
+      file: coverage.out
+```

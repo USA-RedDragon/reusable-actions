@@ -1,0 +1,278 @@
+name: Coverage
+description: >-
+  Coverage badge, per-file baseline and pull request comment from an LCOV or Go
+  coverage report, with no third-party service involved.
+author: USA-RedDragon
+
+branding:
+  icon: umbrella
+  color: green
+
+inputs:
+  file:
+    description: Path to the coverage report, either LCOV or `go test -coverprofile` output.
+    required: true
+  format:
+    description: Report format — `auto`, `lcov` or `go`.
+    default: auto
+  strip-prefix:
+    description: >-
+      Prefix to remove from the paths in the report to make them
+      repository-relative. Left empty, leading path segments are dropped until
+      what remains names a file present in the checkout, which handles Go
+      import paths and llvm-cov absolute paths without configuration.
+    default: ''
+  working-directory:
+    description: Directory the report's paths, the badge and the baseline are all relative to.
+    default: '.'
+
+  badge:
+    description: Where to write the badge SVG. Empty disables the badge.
+    default: .github/badges/coverage.svg
+  baseline:
+    description: >-
+      Per-file summary committed on the default branch, which pull request
+      comments diff against. Empty disables it, and deltas along with it.
+    default: .github/coverage-baseline.tsv
+  label:
+    description: Left-hand text on the badge.
+    default: coverage
+  thresholds:
+    description: >-
+      `green,yellow` percentages. At or above the first the badge is green, at
+      or above the second yellow, otherwise red.
+    default: '80,60'
+
+  comment:
+    description: Post the coverage summary as a pull request comment.
+    default: 'true'
+  marker:
+    description: >-
+      Hidden HTML marker identifying this action's comment, so that it is
+      updated in place rather than duplicated. Give each report a distinct
+      marker if a repository publishes more than one.
+    default: coverage-comment
+  job-summary:
+    description: Also write the coverage summary to the job summary.
+    default: 'true'
+
+  commit:
+    description: >-
+      Commit the badge and baseline back to the branch. `auto` does so only for
+      pushes to the default branch.
+    default: auto
+  git-user-name:
+    description: Author name for the badge and baseline commit.
+    default: github-actions[bot]
+  git-user-email:
+    description: Author email for the badge and baseline commit.
+    default: 41898282+github-actions[bot]@users.noreply.github.com
+
+  fail-under:
+    description: Fail if total coverage is below this percentage. Empty never fails.
+    default: ''
+  if-no-file:
+    description: >-
+      What to do when the report is missing or empty — `error`, or `warn` to
+      skip reporting quietly. Steps that run under `if: always()` alongside
+      tests that may not have produced a report want `warn`.
+    default: error
+
+  token:
+    description: >-
+      Token used to comment and to push. The default suffices unless the
+      default branch is protected against it, which wants an app token.
+    default: ${{ github.token }}
+
+outputs:
+  percent:
+    description: Total coverage percentage, to one decimal place.
+    value: ${{ steps.summarise.outputs.percent }}
+  covered:
+    description: Number of covered lines, or statements for Go reports.
+    value: ${{ steps.summarise.outputs.covered }}
+  total:
+    description: Number of instrumented lines, or statements for Go reports.
+    value: ${{ steps.summarise.outputs.total }}
+  summary:
+    description: Path to the normalised `path<TAB>total<TAB>covered` summary.
+    value: ${{ steps.summarise.outputs.summary }}
+
+runs:
+  using: composite
+  steps:
+    - name: Summarise coverage
+      id: summarise
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        COVERAGE_FILE: ${{ inputs.file }}
+        FORMAT: ${{ inputs.format }}
+        STRIP_PREFIX: ${{ inputs.strip-prefix }}
+        IF_NO_FILE: ${{ inputs.if-no-file }}
+        COMMIT: ${{ inputs.commit }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: |
+        set -euo pipefail
+
+        if [[ ! -s $COVERAGE_FILE ]]; then
+          if [[ $IF_NO_FILE == warn ]]; then
+            echo "::warning::${COVERAGE_FILE} is missing or empty, skipping coverage reporting"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::error::${COVERAGE_FILE} is missing or empty"
+          exit 1
+        fi
+
+        tsv="${RUNNER_TEMP}/coverage-current.tsv"
+        bash "${GITHUB_ACTION_PATH}/scripts/normalize.sh" \
+          "$COVERAGE_FILE" "$FORMAT" "$STRIP_PREFIX" > "$tsv"
+
+        read -r total covered percent < <(awk -F'\t' '
+          { t += $2; c += $3 }
+          END { printf "%d %d %.1f", t, c, t ? c * 100 / t : 0 }
+        ' "$tsv")
+
+        {
+          echo "skip=false"
+          echo "summary=${tsv}"
+          echo "total=${total}"
+          echo "covered=${covered}"
+          echo "percent=${percent}"
+        } >> "$GITHUB_OUTPUT"
+
+        # Resolved here rather than in a step `if:`, which cannot see the
+        # default branch and the requested mode together without repeating
+        # this expression three times.
+        commit=false
+        case "$COMMIT" in
+          true) commit=true ;;
+          auto)
+            if [[ $GITHUB_EVENT_NAME == push && $GITHUB_REF == "refs/heads/${DEFAULT_BRANCH}" ]]; then
+              commit=true
+            fi
+            ;;
+        esac
+        echo "commit=${commit}" >> "$GITHUB_OUTPUT"
+
+        echo "Coverage: ${percent}% — ${covered} of ${total}"
+
+    - name: Write job summary
+      if: ${{ inputs.job-summary == 'true' && steps.summarise.outputs.skip == 'false' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        SUMMARY: ${{ steps.summarise.outputs.summary }}
+        BASELINE: ${{ inputs.baseline }}
+        MARKER: ${{ inputs.marker }}
+      run: |
+        set -euo pipefail
+        # `-` rather than an empty changed-files list: there is no pull request
+        # here to scope the table to, so it lists every instrumented file.
+        bash "${GITHUB_ACTION_PATH}/scripts/comment.sh" \
+          "$SUMMARY" "${BASELINE:-/dev/null}" - "$MARKER" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Comment on pull request
+      if: ${{ inputs.comment == 'true' && github.event_name == 'pull_request' && steps.summarise.outputs.skip == 'false' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        SUMMARY: ${{ steps.summarise.outputs.summary }}
+        BASELINE: ${{ inputs.baseline }}
+        MARKER: ${{ inputs.marker }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        bash "${GITHUB_ACTION_PATH}/scripts/pr-comment.sh" \
+          "$SUMMARY" "${BASELINE:-/dev/null}" "$MARKER" \
+          || echo "::warning::could not publish the coverage comment"
+
+    - name: Update badge and baseline
+      if: ${{ steps.summarise.outputs.commit == 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        SUMMARY: ${{ steps.summarise.outputs.summary }}
+        BADGE: ${{ inputs.badge }}
+        BASELINE: ${{ inputs.baseline }}
+        LABEL: ${{ inputs.label }}
+        THRESHOLDS: ${{ inputs.thresholds }}
+        GIT_USER_NAME: ${{ inputs.git-user-name }}
+        GIT_USER_EMAIL: ${{ inputs.git-user-email }}
+      run: |
+        set -euo pipefail
+
+        [[ -n $BADGE || -n $BASELINE ]] || exit 0
+
+        git config user.name "$GIT_USER_NAME"
+        git config user.email "$GIT_USER_EMAIL"
+
+        branch=${GITHUB_REF#refs/heads/}
+
+        # actions/checkout defaults to depth 1 and a push from a shallow clone
+        # is rejected outright, so deepen rather than make every caller
+        # remember to set fetch-depth.
+        if [[ $(git rev-parse --is-shallow-repository) == true ]]; then
+          git fetch --quiet --unshallow origin "$branch" || git fetch --quiet --unshallow || true
+        fi
+
+        # Retried against a moving branch. This step lands minutes after
+        # checkout, and the commit it makes carries `[skip ci]` so it moves the
+        # branch without triggering the run that would have cancelled anyone,
+        # meaning a plain push can be rejected non-fast-forward.
+        #
+        # Reset-and-regenerate rather than rebase: both files are whole-file
+        # rewrites and a pure function of the summary, so two versions conflict
+        # on every line and a rebase would abort, whereas regenerating on top of
+        # whatever the branch now holds always gives the right answer. The
+        # summary lives in RUNNER_TEMP, so `reset --hard` cannot take it away.
+        for attempt in 1 2 3 4 5; do
+          git fetch --quiet origin "$branch"
+          git reset --quiet --hard FETCH_HEAD
+
+          paths=()
+          if [[ -n $BADGE ]]; then
+            bash "${GITHUB_ACTION_PATH}/scripts/badge.sh" \
+              "$SUMMARY" "$BADGE" "$LABEL" "$THRESHOLDS" > /dev/null
+            paths+=("$BADGE")
+          fi
+          if [[ -n $BASELINE ]]; then
+            mkdir -p "$(dirname "$BASELINE")"
+            cp "$SUMMARY" "$BASELINE"
+            paths+=("$BASELINE")
+          fi
+
+          # Staged before comparing, because on the first run these files are
+          # untracked and a plain `git diff` reports no change at all for them.
+          git add -- "${paths[@]}"
+          if git diff --cached --quiet -- "${paths[@]}"; then
+            echo "coverage unchanged, nothing to commit"
+            exit 0
+          fi
+
+          git commit --quiet -m 'chore: update coverage badge and baseline [skip ci]'
+          if git push --quiet origin "HEAD:${branch}"; then
+            echo "pushed on attempt ${attempt}"
+            exit 0
+          fi
+          echo "push rejected on attempt ${attempt}, another run landed first, retrying"
+        done
+
+        echo "::error::could not land the coverage update after 5 attempts"
+        exit 1
+
+    - name: Enforce minimum coverage
+      if: ${{ inputs.fail-under != '' && steps.summarise.outputs.skip == 'false' }}
+      shell: bash
+      env:
+        PERCENT: ${{ steps.summarise.outputs.percent }}
+        MINIMUM: ${{ inputs.fail-under }}
+      run: |
+        set -euo pipefail
+        if awk -v p="$PERCENT" -v m="$MINIMUM" 'BEGIN { exit !(p < m) }'; then
+          echo "::error::coverage ${PERCENT}% is below the required ${MINIMUM}%"
+          exit 1
+        fi
+        echo "coverage ${PERCENT}% meets the required ${MINIMUM}%"
