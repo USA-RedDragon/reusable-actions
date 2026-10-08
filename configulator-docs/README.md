@@ -43,26 +43,14 @@ jobs:
 `contents: write` is only needed for the commit. With `commit: 'false'` the
 action only checks.
 
-The commit is pushed with the credentials `actions/checkout` left behind. If
-the default branch is protected, check out with a token that may bypass the
-protection, such as a GitHub App's:
-
-```yaml
-steps:
-  - id: app-token
-    uses: actions/create-github-app-token@v3
-    with:
-      client-id: ${{ vars.AUTO_COMMIT_APP_ID }}
-      private-key: ${{ secrets.AUTO_COMMIT_APP_KEY }}
-  - uses: actions/checkout@v4
-    with:
-      token: ${{ steps.app-token.outputs.token }}
-  - uses: USA-RedDragon/reusable-actions/configulator-docs@v2
-    with:
-      type: Config
-      git-user-name: my-app[bot]
-      git-user-email: my-app[bot]@users.noreply.github.com
-```
+The commit is pushed with the credentials `actions/checkout` left behind,
+in the same job that runs the generator at the version your lockfile pins.
+Don't give that job a token that may bypass branch protection: a
+compromised dependency could use it. To commit with such a token, or to
+commit to pull request branches such as Renovate's, use the
+[configulator-docs reusable workflow](../README.md#configulator-docs-workflow)
+instead. It generates in a read-only job and commits from a separate job
+that runs no repository code.
 
 ## Inputs
 
@@ -79,7 +67,7 @@ steps:
 | `working-directory` | `.` | Directory with the go.mod that pins configulator |
 | `setup-go` | `true` | Install Go from `go-version-file` |
 | `go-version-file` | `go.mod` | Passed to actions/setup-go |
-| `commit` | `auto` | `true`, `false`, or `auto` (commit only on pushes to the default branch) |
+| `commit` | `auto` | `true`, `false`, `auto` (commit only on pushes to the default branch), or `write` (write the files and set `stale`, no git) |
 | `git-user-name` | `github-actions[bot]` | Commit author name |
 | `git-user-email` | the GitHub Actions bot address | Commit author email |
 

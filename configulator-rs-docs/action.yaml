@@ -50,10 +50,11 @@ inputs:
 
   commit:
     description: >-
-      Commit the updated files instead of failing. `auto` commits on pushes to
-      the default branch and on pull requests from a branch in the same
-      repository, such as Renovate's, and fails anywhere else, such as pull
-      requests from forks. The checkout token must be allowed to push.
+      Commit the updated files instead of failing. `auto` commits only on
+      pushes to the default branch and fails anywhere else, such as pull
+      requests. `write` only writes the files and sets `stale`, without
+      failing or touching git; the configulator-docs reusable workflow uses it
+      to commit from a separate job.
     default: auto
   git-user-name:
     description: Author name for the commit.
@@ -113,7 +114,6 @@ runs:
         FLAG_SEPARATOR: ${{ inputs.flag-separator }}
         COMMIT: ${{ inputs.commit }}
         DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        SAME_REPO_PR: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
       run: |
         set -euo pipefail
 
@@ -137,13 +137,16 @@ runs:
         fi
         echo "stale=true" >> "$GITHUB_OUTPUT"
 
+        if [[ $COMMIT == write ]]; then
+          render
+          exit 0
+        fi
+
         commit=false
         case "$COMMIT" in
           true) commit=true ;;
           auto)
             if [[ $GITHUB_EVENT_NAME == push && $GITHUB_REF == "refs/heads/${DEFAULT_BRANCH}" ]]; then
-              commit=true
-            elif [[ $GITHUB_EVENT_NAME == pull_request && $SAME_REPO_PR == true ]]; then
               commit=true
             fi
             ;;
@@ -178,12 +181,7 @@ runs:
 
         git config user.name "$GIT_USER_NAME"
         git config user.email "$GIT_USER_EMAIL"
-        branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
-        message="docs: update generated config docs [skip ci]"
-        # A pull request needs checks on its new head commit, or it can't merge.
-        if [[ -n ${GITHUB_HEAD_REF:-} ]]; then
-          message="docs: update generated config docs"
-        fi
+        branch=${GITHUB_REF#refs/heads/}
         files=()
         if [[ -n $FILE ]]; then
           files+=("$FILE")
@@ -215,7 +213,7 @@ runs:
             exit 0
           fi
 
-          git commit --quiet -m "$message"
+          git commit --quiet -m "docs: update generated config docs [skip ci]"
           if git push --quiet origin "HEAD:${branch}"; then
             echo "pushed on attempt ${attempt}"
             exit 0
