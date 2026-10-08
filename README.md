@@ -22,6 +22,8 @@ have and can see the files it produced.
 
 - [`coverage`](coverage) - Coverage badge, baseline and pull request comment
   from an LCOV or Go coverage report, without a third-party service
+- [`configulator-docs`](configulator-docs) - Keep the configulator config
+  reference table in a Markdown file up to date
 
 ```yaml
 steps:

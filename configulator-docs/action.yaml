@@ -1,0 +1,157 @@
+name: Configulator docs
+description: >-
+  Keep the configulator config reference table in a Markdown file up to date.
+  Fails when the file is stale, or commits the update.
+author: USA-RedDragon
+
+branding:
+  icon: book-open
+  color: blue
+
+inputs:
+  type:
+    description: The config root type, as passed to `configulator -type`.
+    required: true
+  dir:
+    description: Directory of the package that declares the type, relative to `working-directory`.
+    default: '.'
+  file:
+    description: >-
+      Markdown file holding the `<!-- configulator:begin -->` and
+      `<!-- configulator:end -->` markers, relative to `working-directory`.
+    default: README.md
+  env-prefix:
+    description: Environment variable prefix shown in the table.
+    default: ''
+  env-separator:
+    description: Environment variable separator shown in the table.
+    default: '_'
+  flag-separator:
+    description: Flag separator shown in the table.
+    default: '.'
+  working-directory:
+    description: Directory containing the go.mod that pins configulator as a tool.
+    default: '.'
+
+  setup-go:
+    description: Install Go with actions/setup-go using `go-version-file`. Set to `false` if the job already has Go.
+    default: 'true'
+  go-version-file:
+    description: Passed to actions/setup-go, relative to the repository root.
+    default: go.mod
+
+  commit:
+    description: >-
+      Commit the updated file instead of failing. `auto` commits only on pushes
+      to the default branch and fails anywhere else, such as pull requests.
+    default: auto
+  git-user-name:
+    description: Author name for the commit.
+    default: github-actions[bot]
+  git-user-email:
+    description: Author email for the commit.
+    default: 41898282+github-actions[bot]@users.noreply.github.com
+
+outputs:
+  stale:
+    description: '`true` if the file was out of date when the action started.'
+    value: ${{ steps.check.outputs.stale }}
+
+runs:
+  using: composite
+  steps:
+    - if: ${{ inputs.setup-go == 'true' }}
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: ${{ inputs.go-version-file }}
+
+    - id: check
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        TYPE: ${{ inputs.type }}
+        DIR: ${{ inputs.dir }}
+        FILE: ${{ inputs.file }}
+        ENV_PREFIX: ${{ inputs.env-prefix }}
+        ENV_SEPARATOR: ${{ inputs.env-separator }}
+        FLAG_SEPARATOR: ${{ inputs.flag-separator }}
+        COMMIT: ${{ inputs.commit }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: |
+        set -euo pipefail
+
+        render() {
+          go tool configulator -dir "$DIR" -type "$TYPE" -markdown -markdown-file "$FILE" \
+            -env-prefix "$ENV_PREFIX" -env-separator "$ENV_SEPARATOR" -flag-separator "$FLAG_SEPARATOR" "$@"
+        }
+
+        if render -check; then
+          echo "stale=false" >> "$GITHUB_OUTPUT"
+          echo "${FILE} is up to date"
+          exit 0
+        fi
+        echo "stale=true" >> "$GITHUB_OUTPUT"
+
+        commit=false
+        case "$COMMIT" in
+          true) commit=true ;;
+          auto)
+            if [[ $GITHUB_EVENT_NAME == push && $GITHUB_REF == "refs/heads/${DEFAULT_BRANCH}" ]]; then
+              commit=true
+            fi
+            ;;
+        esac
+        if [[ $commit != true ]]; then
+          echo "::error file=${FILE}::${FILE} is out of date. Run: go tool configulator -dir ${DIR} -type ${TYPE} -markdown -markdown-file ${FILE}"
+          exit 1
+        fi
+        echo "commit=true" >> "$GITHUB_OUTPUT"
+
+    - if: ${{ steps.check.outputs.commit == 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        TYPE: ${{ inputs.type }}
+        DIR: ${{ inputs.dir }}
+        FILE: ${{ inputs.file }}
+        ENV_PREFIX: ${{ inputs.env-prefix }}
+        ENV_SEPARATOR: ${{ inputs.env-separator }}
+        FLAG_SEPARATOR: ${{ inputs.flag-separator }}
+        GIT_USER_NAME: ${{ inputs.git-user-name }}
+        GIT_USER_EMAIL: ${{ inputs.git-user-email }}
+      run: |
+        set -euo pipefail
+
+        git config user.name "$GIT_USER_NAME"
+        git config user.email "$GIT_USER_EMAIL"
+        branch=${GITHUB_REF#refs/heads/}
+
+        # A push from a shallow clone is rejected.
+        if [[ $(git rev-parse --is-shallow-repository) == true ]]; then
+          git fetch --quiet --unshallow origin "$branch" || git fetch --quiet --unshallow || true
+        fi
+
+        # Another push can land between checkout and here. Regenerate on top
+        # of the new tip and try again rather than rebasing.
+        for attempt in 1 2 3 4 5; do
+          git fetch --quiet origin "$branch"
+          git reset --quiet --hard FETCH_HEAD
+
+          go tool configulator -dir "$DIR" -type "$TYPE" -markdown -markdown-file "$FILE" \
+            -env-prefix "$ENV_PREFIX" -env-separator "$ENV_SEPARATOR" -flag-separator "$FLAG_SEPARATOR"
+
+          git add -- "$FILE"
+          if git diff --cached --quiet -- "$FILE"; then
+            echo "${FILE} unchanged, nothing to commit"
+            exit 0
+          fi
+
+          git commit --quiet -m "docs: update config reference in ${FILE} [skip ci]"
+          if git push --quiet origin "HEAD:${branch}"; then
+            echo "pushed on attempt ${attempt}"
+            exit 0
+          fi
+          echo "push rejected on attempt ${attempt}, retrying"
+        done
+        echo "::error::could not push the ${FILE} update after 5 attempts"
+        exit 1
