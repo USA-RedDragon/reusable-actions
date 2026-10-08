@@ -1,7 +1,8 @@
 name: Configulator docs
 description: >-
-  Keep the configulator config reference table in a Markdown file up to date.
-  Fails when the file is stale, or commits the update.
+  Keep the configulator config reference table in a Markdown file and the
+  example config file up to date. Fails when either is stale, or commits the
+  update.
 author: USA-RedDragon
 
 branding:
@@ -19,7 +20,14 @@ inputs:
     description: >-
       Markdown file holding the `<!-- configulator:begin -->` and
       `<!-- configulator:end -->` markers, relative to `working-directory`.
+      Empty skips the Markdown table.
     default: README.md
+  sample-file:
+    description: Example config file to generate, relative to `working-directory`. Empty skips it.
+    default: config.example.yaml
+  sample-format:
+    description: Format of the example config file, `yaml`, `json` or `toml`.
+    default: yaml
   env-prefix:
     description: Environment variable prefix shown in the table.
     default: ''
@@ -54,7 +62,7 @@ inputs:
 
 outputs:
   stale:
-    description: '`true` if the file was out of date when the action started.'
+    description: '`true` if a file was out of date when the action started.'
     value: ${{ steps.check.outputs.stale }}
 
 runs:
@@ -72,6 +80,8 @@ runs:
         TYPE: ${{ inputs.type }}
         DIR: ${{ inputs.dir }}
         FILE: ${{ inputs.file }}
+        SAMPLE_FILE: ${{ inputs.sample-file }}
+        SAMPLE_FORMAT: ${{ inputs.sample-format }}
         ENV_PREFIX: ${{ inputs.env-prefix }}
         ENV_SEPARATOR: ${{ inputs.env-separator }}
         FLAG_SEPARATOR: ${{ inputs.flag-separator }}
@@ -81,13 +91,20 @@ runs:
         set -euo pipefail
 
         render() {
-          go tool configulator -dir "$DIR" -type "$TYPE" -markdown -markdown-file "$FILE" \
-            -env-prefix "$ENV_PREFIX" -env-separator "$ENV_SEPARATOR" -flag-separator "$FLAG_SEPARATOR" "$@"
+          local rc=0
+          if [[ -n $FILE ]]; then
+            go tool configulator -dir "$DIR" -type "$TYPE" -markdown -markdown-file "$FILE" \
+              -env-prefix "$ENV_PREFIX" -env-separator "$ENV_SEPARATOR" -flag-separator "$FLAG_SEPARATOR" "$@" || rc=1
+          fi
+          if [[ -n $SAMPLE_FILE ]]; then
+            go tool configulator -dir "$DIR" -type "$TYPE" -sample -format "$SAMPLE_FORMAT" -sample-file "$SAMPLE_FILE" "$@" || rc=1
+          fi
+          return $rc
         }
 
         if render -check; then
           echo "stale=false" >> "$GITHUB_OUTPUT"
-          echo "${FILE} is up to date"
+          echo "generated config docs are up to date"
           exit 0
         fi
         echo "stale=true" >> "$GITHUB_OUTPUT"
@@ -102,7 +119,7 @@ runs:
             ;;
         esac
         if [[ $commit != true ]]; then
-          echo "::error file=${FILE}::${FILE} is out of date. Run: go tool configulator -dir ${DIR} -type ${TYPE} -markdown -markdown-file ${FILE}"
+          echo "::error::generated config docs are out of date; see the configulator messages above"
           exit 1
         fi
         echo "commit=true" >> "$GITHUB_OUTPUT"
@@ -114,6 +131,8 @@ runs:
         TYPE: ${{ inputs.type }}
         DIR: ${{ inputs.dir }}
         FILE: ${{ inputs.file }}
+        SAMPLE_FILE: ${{ inputs.sample-file }}
+        SAMPLE_FORMAT: ${{ inputs.sample-format }}
         ENV_PREFIX: ${{ inputs.env-prefix }}
         ENV_SEPARATOR: ${{ inputs.env-separator }}
         FLAG_SEPARATOR: ${{ inputs.flag-separator }}
@@ -121,6 +140,18 @@ runs:
         GIT_USER_EMAIL: ${{ inputs.git-user-email }}
       run: |
         set -euo pipefail
+
+        render() {
+          local rc=0
+          if [[ -n $FILE ]]; then
+            go tool configulator -dir "$DIR" -type "$TYPE" -markdown -markdown-file "$FILE" \
+              -env-prefix "$ENV_PREFIX" -env-separator "$ENV_SEPARATOR" -flag-separator "$FLAG_SEPARATOR" "$@" || rc=1
+          fi
+          if [[ -n $SAMPLE_FILE ]]; then
+            go tool configulator -dir "$DIR" -type "$TYPE" -sample -format "$SAMPLE_FORMAT" -sample-file "$SAMPLE_FILE" "$@" || rc=1
+          fi
+          return $rc
+        }
 
         git config user.name "$GIT_USER_NAME"
         git config user.email "$GIT_USER_EMAIL"
@@ -137,21 +168,23 @@ runs:
           git fetch --quiet origin "$branch"
           git reset --quiet --hard FETCH_HEAD
 
-          go tool configulator -dir "$DIR" -type "$TYPE" -markdown -markdown-file "$FILE" \
-            -env-prefix "$ENV_PREFIX" -env-separator "$ENV_SEPARATOR" -flag-separator "$FLAG_SEPARATOR"
+          render
 
-          git add -- "$FILE"
-          if git diff --cached --quiet -- "$FILE"; then
-            echo "${FILE} unchanged, nothing to commit"
+          paths=()
+          [[ -n $FILE ]] && paths+=("$FILE")
+          [[ -n $SAMPLE_FILE ]] && paths+=("$SAMPLE_FILE")
+          git add -- "${paths[@]}"
+          if git diff --cached --quiet -- "${paths[@]}"; then
+            echo "generated config docs unchanged, nothing to commit"
             exit 0
           fi
 
-          git commit --quiet -m "docs: update config reference in ${FILE} [skip ci]"
+          git commit --quiet -m "docs: update generated config docs [skip ci]"
           if git push --quiet origin "HEAD:${branch}"; then
             echo "pushed on attempt ${attempt}"
             exit 0
           fi
           echo "push rejected on attempt ${attempt}, retrying"
         done
-        echo "::error::could not push the ${FILE} update after 5 attempts"
+        echo "::error::could not push the config docs update after 5 attempts"
         exit 1

@@ -1,9 +1,9 @@
 # Configulator docs
 
 Keeps the [configulator](https://github.com/USA-RedDragon/configulator)
-config reference table in a Markdown file up to date. On pull requests it
-fails if the file is stale. On pushes to the default branch it commits the
-update.
+config reference table in a Markdown file, and the example config file, up
+to date. On pull requests it fails if either is stale. On pushes to the
+default branch it commits the update.
 
 ## Usage
 
@@ -16,7 +16,7 @@ Put the markers where the table should go:
 <!-- configulator:end -->
 ```
 
-The repository must pin the generator as a tool (configulator v2.1.0 or
+The repository must pin the generator as a tool (configulator v2.2.0 or
 later):
 
 ```sh
@@ -70,7 +70,9 @@ steps:
 | --- | --- | --- |
 | `type` | (required) | Config root type, as passed to `configulator -type` |
 | `dir` | `.` | Package directory that declares the type |
-| `file` | `README.md` | Markdown file holding the markers |
+| `file` | `README.md` | Markdown file holding the markers. Empty skips it |
+| `sample-file` | `config.example.yaml` | Example config file to generate. Empty skips it |
+| `sample-format` | `yaml` | `yaml`, `json` or `toml` |
 | `env-prefix` | `''` | Environment variable prefix shown in the table |
 | `env-separator` | `_` | Environment variable separator shown in the table |
 | `flag-separator` | `.` | Flag separator shown in the table |
@@ -85,4 +87,4 @@ steps:
 
 | Output | Description |
 | --- | --- |
-| `stale` | `true` if the file was out of date when the action started |
+| `stale` | `true` if a file was out of date when the action started |

@@ -23,7 +23,7 @@ have and can see the files it produced.
 - [`coverage`](coverage) - Coverage badge, baseline and pull request comment
   from an LCOV or Go coverage report, without a third-party service
 - [`configulator-docs`](configulator-docs) - Keep the configulator config
-  reference table in a Markdown file up to date
+  reference table in a Markdown file, and the example config, up to date
 - [`configulator-rs-docs`](configulator-rs-docs) - The same for
   configulator-rs
 
