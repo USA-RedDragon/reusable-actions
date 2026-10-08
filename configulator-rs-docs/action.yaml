@@ -1,0 +1,202 @@
+name: Configulator docs (Rust)
+description: >-
+  Keep the configulator-rs config reference table in a Markdown file and a
+  sample config file up to date. Fails when they are stale, or commits the
+  update.
+author: USA-RedDragon
+
+branding:
+  icon: book-open
+  color: blue
+
+inputs:
+  type:
+    description: The config root type, as passed to `configulator --type`.
+    required: true
+  dir:
+    description: Directory scanned for the type's source, relative to `working-directory`.
+    default: '.'
+  file:
+    description: >-
+      Markdown file holding the `<!-- configulator:begin -->` and
+      `<!-- configulator:end -->` markers, relative to `working-directory`.
+    default: README.md
+  sample-file:
+    description: >-
+      Sample config file to generate, relative to `working-directory`. Empty
+      skips it.
+    default: config.example.yaml
+  sample-format:
+    description: Format of the sample config file, `yaml`, `json` or `toml`.
+    default: yaml
+  env-prefix:
+    description: Environment variable prefix shown in the table.
+    default: ''
+  env-separator:
+    description: Environment variable separator shown in the table.
+    default: '__'
+  flag-separator:
+    description: Flag separator shown in the table.
+    default: '.'
+  working-directory:
+    description: Directory containing the Cargo.lock that pins configulator-rs.
+    default: '.'
+  version:
+    description: >-
+      configulator-cli version to install. Empty means the configulator-rs
+      version in `Cargo.lock`.
+    default: ''
+
+  commit:
+    description: >-
+      Commit the updated files instead of failing. `auto` commits only on pushes
+      to the default branch and fails anywhere else, such as pull requests.
+    default: auto
+  git-user-name:
+    description: Author name for the commit.
+    default: github-actions[bot]
+  git-user-email:
+    description: Author email for the commit.
+    default: 41898282+github-actions[bot]@users.noreply.github.com
+
+outputs:
+  stale:
+    description: '`true` if a file was out of date when the action started.'
+    value: ${{ steps.check.outputs.stale }}
+
+runs:
+  using: composite
+  steps:
+    - id: version
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        if [[ -z $VERSION ]]; then
+          if [[ ! -f Cargo.lock ]]; then
+            echo "::error::no Cargo.lock in ${PWD}; set the version input"
+            exit 1
+          fi
+          VERSION=$(awk '/^name = "configulator-rs"$/ { found = 1; next } found && /^version = / { gsub(/"/, "", $3); print $3; exit }' Cargo.lock)
+          if [[ -z $VERSION ]]; then
+            echo "::error::configulator-rs is not in Cargo.lock; set the version input"
+            exit 1
+          fi
+        fi
+        echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+    - shell: bash
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
+      run: cargo install configulator-cli --locked --version "=${VERSION}"
+
+    - id: check
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        TYPE: ${{ inputs.type }}
+        DIR: ${{ inputs.dir }}
+        FILE: ${{ inputs.file }}
+        SAMPLE_FILE: ${{ inputs.sample-file }}
+        SAMPLE_FORMAT: ${{ inputs.sample-format }}
+        ENV_PREFIX: ${{ inputs.env-prefix }}
+        ENV_SEPARATOR: ${{ inputs.env-separator }}
+        FLAG_SEPARATOR: ${{ inputs.flag-separator }}
+        COMMIT: ${{ inputs.commit }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: |
+        set -euo pipefail
+
+        render() {
+          local rc=0
+          configulator --dir "$DIR" --type "$TYPE" --markdown --markdown-file "$FILE" \
+            --env-prefix "$ENV_PREFIX" --env-separator "$ENV_SEPARATOR" --flag-separator "$FLAG_SEPARATOR" "$@" || rc=1
+          if [[ -n $SAMPLE_FILE ]]; then
+            configulator --dir "$DIR" --type "$TYPE" --sample --sample-file "$SAMPLE_FILE" \
+              --format "$SAMPLE_FORMAT" "$@" || rc=1
+          fi
+          return "$rc"
+        }
+
+        if render --check; then
+          echo "stale=false" >> "$GITHUB_OUTPUT"
+          echo "generated config docs are up to date"
+          exit 0
+        fi
+        echo "stale=true" >> "$GITHUB_OUTPUT"
+
+        commit=false
+        case "$COMMIT" in
+          true) commit=true ;;
+          auto)
+            if [[ $GITHUB_EVENT_NAME == push && $GITHUB_REF == "refs/heads/${DEFAULT_BRANCH}" ]]; then
+              commit=true
+            fi
+            ;;
+        esac
+        if [[ $commit != true ]]; then
+          echo "::error::generated config docs are out of date. Run: configulator --dir ${DIR} --type ${TYPE} --markdown --markdown-file ${FILE}"
+          if [[ -n $SAMPLE_FILE ]]; then
+            echo "::error::and: configulator --dir ${DIR} --type ${TYPE} --sample --sample-file ${SAMPLE_FILE} --format ${SAMPLE_FORMAT}"
+          fi
+          exit 1
+        fi
+        echo "commit=true" >> "$GITHUB_OUTPUT"
+
+    - if: ${{ steps.check.outputs.commit == 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        TYPE: ${{ inputs.type }}
+        DIR: ${{ inputs.dir }}
+        FILE: ${{ inputs.file }}
+        SAMPLE_FILE: ${{ inputs.sample-file }}
+        SAMPLE_FORMAT: ${{ inputs.sample-format }}
+        ENV_PREFIX: ${{ inputs.env-prefix }}
+        ENV_SEPARATOR: ${{ inputs.env-separator }}
+        FLAG_SEPARATOR: ${{ inputs.flag-separator }}
+        GIT_USER_NAME: ${{ inputs.git-user-name }}
+        GIT_USER_EMAIL: ${{ inputs.git-user-email }}
+      run: |
+        set -euo pipefail
+
+        git config user.name "$GIT_USER_NAME"
+        git config user.email "$GIT_USER_EMAIL"
+        branch=${GITHUB_REF#refs/heads/}
+        files=("$FILE")
+        if [[ -n $SAMPLE_FILE ]]; then
+          files+=("$SAMPLE_FILE")
+        fi
+
+        if [[ $(git rev-parse --is-shallow-repository) == true ]]; then
+          git fetch --quiet --unshallow origin "$branch" || git fetch --quiet --unshallow || true
+        fi
+
+        for attempt in 1 2 3 4 5; do
+          git fetch --quiet origin "$branch"
+          git reset --quiet --hard FETCH_HEAD
+
+          configulator --dir "$DIR" --type "$TYPE" --markdown --markdown-file "$FILE" \
+            --env-prefix "$ENV_PREFIX" --env-separator "$ENV_SEPARATOR" --flag-separator "$FLAG_SEPARATOR"
+          if [[ -n $SAMPLE_FILE ]]; then
+            configulator --dir "$DIR" --type "$TYPE" --sample --sample-file "$SAMPLE_FILE" \
+              --format "$SAMPLE_FORMAT"
+          fi
+
+          git add -- "${files[@]}"
+          if git diff --cached --quiet -- "${files[@]}"; then
+            echo "${files[*]} unchanged, nothing to commit"
+            exit 0
+          fi
+
+          git commit --quiet -m "docs: update generated config docs [skip ci]"
+          if git push --quiet origin "HEAD:${branch}"; then
+            echo "pushed on attempt ${attempt}"
+            exit 0
+          fi
+          echo "push rejected on attempt ${attempt}, retrying"
+        done
+        echo "::error::could not push the ${files[*]} update after 5 attempts"
+        exit 1

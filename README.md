@@ -24,6 +24,8 @@ have and can see the files it produced.
   from an LCOV or Go coverage report, without a third-party service
 - [`configulator-docs`](configulator-docs) - Keep the configulator config
   reference table in a Markdown file up to date
+- [`configulator-rs-docs`](configulator-rs-docs) - The same for
+  configulator-rs
 
 ```yaml
 steps:
