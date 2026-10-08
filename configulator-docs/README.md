@@ -16,8 +16,8 @@ Put the markers where the table should go:
 <!-- configulator:end -->
 ```
 
-The repository must pin the generator as a tool (configulator v2.2.0 or
-later):
+The repository must pin the generator as a tool, configulator v2.2.0 or
+later (older versions fail with a clear error):
 
 ```sh
 go get -tool github.com/USA-RedDragon/configulator/v2/cmd/configulator@latest

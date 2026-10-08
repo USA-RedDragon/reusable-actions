@@ -90,6 +90,12 @@ runs:
       run: |
         set -euo pipefail
 
+        version=$(go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' github.com/USA-RedDragon/configulator/v2)
+        if [[ -n $version ]] && [[ $(printf '%s\n' v2.2.0 "$version" | sort -V | head -n1) != v2.2.0 ]]; then
+          echo "::error::configulator ${version} is too old for this action; it needs v2.2.0 or later"
+          exit 1
+        fi
+
         render() {
           local rc=0
           if [[ -n $FILE ]]; then
