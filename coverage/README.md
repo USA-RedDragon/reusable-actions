@@ -85,7 +85,7 @@ than failing the job. Use `fail-under` if you want a gate.
 | `comment` | `true` | Post the pull request comment. |
 | `marker` | `coverage-comment` | Hidden marker identifying the comment. Give each report its own if a repo publishes more than one. |
 | `job-summary` | `true` | Also write the summary to the job summary. |
-| `commit` | `auto` | Commit badge and baseline. `auto` means pushes to the default branch only. |
+| `commit` | `auto` | Commit badge and baseline. `auto` means pushes to the default branch only. `write` only writes them, no git. |
 | `git-user-name` | `github-actions[bot]` | Author of that commit. |
 | `git-user-email` | `41898282+github-actions[bot]@users.noreply.github.com` | Author of that commit. |
 | `fail-under` | `''` | Fail below this percentage. Empty never fails. |
@@ -117,9 +117,11 @@ full of absolute paths is the symptom to look for.
 ## Notes
 
 - **Protected default branch.** The default `GITHUB_TOKEN` cannot push to a
-  branch protected against it. Pass an app token instead, via
-  [`actions/create-github-app-token`](https://github.com/actions/create-github-app-token),
-  and set `git-user-name` and `git-user-email` to that app's identity.
+  branch protected against it. Don't hand this action a token that may
+  bypass the protection in a job that runs your tests: test code and its
+  dependencies could read it. Use the
+  [coverage reusable workflow](../README.md#coverage-workflow) instead, which
+  commits from a separate job that runs no repository code.
 - **`cancel-in-progress`.** Do not cancel in-progress runs on the default
   branch if another workflow requires this check to conclude `success` on the
   deployed commit — a superseded run concludes `cancelled`. The push retries,

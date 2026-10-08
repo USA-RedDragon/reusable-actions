@@ -59,7 +59,8 @@ inputs:
   commit:
     description: >-
       Commit the badge and baseline back to the branch. `auto` does so only for
-      pushes to the default branch.
+      pushes to the default branch. `write` only writes them, without touching
+      git; the coverage reusable workflow uses it to commit from a separate job.
     default: auto
   git-user-name:
     description: Author name for the badge and baseline commit.
@@ -151,6 +152,7 @@ runs:
         commit=false
         case "$COMMIT" in
           true) commit=true ;;
+          write) commit=write ;;
           auto)
             if [[ $GITHUB_EVENT_NAME == push && $GITHUB_REF == "refs/heads/${DEFAULT_BRANCH}" ]]; then
               commit=true
@@ -193,7 +195,7 @@ runs:
           || echo "::warning::could not publish the coverage comment"
 
     - name: Update badge and baseline
-      if: ${{ steps.summarise.outputs.commit == 'true' }}
+      if: ${{ steps.summarise.outputs.commit == 'true' || steps.summarise.outputs.commit == 'write' }}
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
@@ -202,12 +204,26 @@ runs:
         BASELINE: ${{ inputs.baseline }}
         LABEL: ${{ inputs.label }}
         THRESHOLDS: ${{ inputs.thresholds }}
+        COMMIT: ${{ steps.summarise.outputs.commit }}
         GIT_USER_NAME: ${{ inputs.git-user-name }}
         GIT_USER_EMAIL: ${{ inputs.git-user-email }}
       run: |
         set -euo pipefail
 
         [[ -n $BADGE || -n $BASELINE ]] || exit 0
+
+        if [[ $COMMIT == write ]]; then
+          if [[ -n $BADGE ]]; then
+            mkdir -p "$(dirname "$BADGE")"
+            bash "${GITHUB_ACTION_PATH}/scripts/badge.sh" \
+              "$SUMMARY" "$BADGE" "$LABEL" "$THRESHOLDS" > /dev/null
+          fi
+          if [[ -n $BASELINE ]]; then
+            mkdir -p "$(dirname "$BASELINE")"
+            cp "$SUMMARY" "$BASELINE"
+          fi
+          exit 0
+        fi
 
         git config user.name "$GIT_USER_NAME"
         git config user.email "$GIT_USER_EMAIL"
