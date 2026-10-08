@@ -1,0 +1,339 @@
+name: Configulator docs
+
+# Regenerates the configulator config table and example config. The generate
+# job runs the generator the repository pins, so it gets a read-only token and
+# no app token. The commit job holds the app token, runs no repository code,
+# and only writes the declared files from the generate job's artifact.
+
+on:
+  workflow_call:
+    inputs:
+      language:
+        description: '`go` for configulator, `rust` for configulator-rs.'
+        type: string
+        default: go
+      type:
+        description: The config root type.
+        type: string
+        required: true
+      dir:
+        description: Directory of the type's source, relative to `working-directory`.
+        type: string
+        default: '.'
+      file:
+        description: Markdown file holding the configulator markers, relative to `working-directory`. Empty skips it.
+        type: string
+        default: README.md
+      sample-file:
+        description: Example config file, relative to `working-directory`. Empty skips it.
+        type: string
+        default: config.example.yaml
+      sample-format:
+        description: Format of the example config file, `yaml`, `json` or `toml`.
+        type: string
+        default: yaml
+      env-prefix:
+        description: Environment variable prefix shown in the table.
+        type: string
+        default: ''
+      env-separator:
+        description: Environment variable separator shown in the table.
+        type: string
+        default: '_'
+      flag-separator:
+        description: Flag separator shown in the table.
+        type: string
+        default: '.'
+      working-directory:
+        description: Directory with the go.mod or Cargo.lock that pins configulator.
+        type: string
+        default: '.'
+      go-version-file:
+        description: Go only. Passed to actions/setup-go, relative to the repository root.
+        type: string
+        default: go.mod
+      version:
+        description: Rust only. configulator-cli version to install. Empty means the configulator-rs version in Cargo.lock.
+        type: string
+        default: ''
+      app-id:
+        description: ID of the GitHub App that commits the update.
+        type: string
+        required: true
+    secrets:
+      app-key:
+        description: Private key of the GitHub App that commits the update.
+        required: false
+    outputs:
+      stale:
+        description: '`true` if a generated file was out of date.'
+        value: ${{ jobs.generate.outputs.stale }}
+
+permissions: {}
+
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      stale: ${{ steps.go.outputs.stale || steps.rust.outputs.stale }}
+      base: ${{ steps.base.outputs.sha }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # The composite action is pinned to a commit of this repository, since
+      # a reusable workflow can't refer to its own ref. Bump it with the action.
+      - id: go
+        if: ${{ inputs.language == 'go' }}
+        uses: USA-RedDragon/reusable-actions/configulator-docs@7bb43c1da7bbfbc35fdb69a8649f2b2c51b59862
+        with:
+          type: ${{ inputs.type }}
+          dir: ${{ inputs.dir }}
+          file: ${{ inputs.file }}
+          sample-file: ${{ inputs.sample-file }}
+          sample-format: ${{ inputs.sample-format }}
+          env-prefix: ${{ inputs.env-prefix }}
+          env-separator: ${{ inputs.env-separator }}
+          flag-separator: ${{ inputs.flag-separator }}
+          working-directory: ${{ inputs.working-directory }}
+          go-version-file: ${{ inputs.go-version-file }}
+          commit: write
+
+      - id: rust
+        if: ${{ inputs.language == 'rust' }}
+        uses: USA-RedDragon/reusable-actions/configulator-rs-docs@7bb43c1da7bbfbc35fdb69a8649f2b2c51b59862
+        with:
+          type: ${{ inputs.type }}
+          dir: ${{ inputs.dir }}
+          file: ${{ inputs.file }}
+          sample-file: ${{ inputs.sample-file }}
+          sample-format: ${{ inputs.sample-format }}
+          env-prefix: ${{ inputs.env-prefix }}
+          env-separator: ${{ inputs.env-separator }}
+          flag-separator: ${{ inputs.flag-separator }}
+          working-directory: ${{ inputs.working-directory }}
+          version: ${{ inputs.version }}
+          commit: write
+
+      - id: stage
+        if: ${{ steps.go.outputs.stale == 'true' || steps.rust.outputs.stale == 'true' }}
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+          FILE: ${{ inputs.file }}
+          SAMPLE_FILE: ${{ inputs.sample-file }}
+          CAN_COMMIT: ${{ (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
+        run: |
+          set -euo pipefail
+          git --no-pager diff --stat
+          git --no-pager diff
+          if [[ $CAN_COMMIT != true ]]; then
+            echo "::error::Generated config docs are out of date. Regenerate them with configulator and commit the result; the diff is above."
+            exit 1
+          fi
+
+          out="${RUNNER_TEMP}/configulator-docs"
+          mkdir -p "$out"
+          for f in "$FILE" "$SAMPLE_FILE"; do
+            [[ -n $f ]] || continue
+            path=$(realpath -m -s --relative-to=. "${WORKING_DIRECTORY}/${f}")
+            mkdir -p "$out/$(dirname "$path")"
+            cp -- "$path" "$out/$path"
+          done
+
+      - id: upload
+        if: ${{ steps.stage.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: configulator-docs
+          path: ${{ runner.temp }}/configulator-docs/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  commit:
+    needs: generate
+    if: >-
+      needs.generate.outputs.stale == 'true' && (
+        (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) ||
+        (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      )
+    runs-on: ubuntu-24.04
+    permissions: {}
+    concurrency:
+      group: configulator-docs-commit-${{ github.event.pull_request.head.ref || github.ref_name }}
+      cancel-in-progress: false
+    env:
+      BRANCH: ${{ github.event.pull_request.head.ref || github.event.repository.default_branch }}
+      BASE: ${{ needs.generate.outputs.base }}
+      WORKING_DIRECTORY: ${{ inputs.working-directory }}
+      FILE: ${{ inputs.file }}
+      SAMPLE_FILE: ${{ inputs.sample-file }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.generate.outputs.artifact-id }}
+          path: ${{ runner.temp }}/configulator-docs
+
+      # The artifact came from a job that ran repository code, so it may hold
+      # anything. Accept only the declared files, as regular files.
+      - id: verify
+        run: |
+          set -euo pipefail
+          paths=()
+          for f in "$FILE" "$SAMPLE_FILE"; do
+            [[ -n $f ]] || continue
+            path=$(realpath -m -s --relative-to=/repo "/repo/${WORKING_DIRECTORY}/${f}")
+            if [[ $path == .. || $path == ../* || $path == . || $path == .git || $path == .git/* || $path == .github || $path == .github/* ]]; then
+              echo "::error::refusing to write ${path}"
+              exit 1
+            fi
+            paths+=("$path")
+          done
+          if [[ ${#paths[@]} -eq 2 && ${paths[0]} == "${paths[1]}" ]]; then
+            echo "::error::file and sample-file are the same path"
+            exit 1
+          fi
+
+          allowed=()
+          for p in "${paths[@]}"; do
+            allowed+=("$p")
+            d=$(dirname "$p")
+            while [[ $d != . ]]; do
+              allowed+=("$d")
+              d=$(dirname "$d")
+            done
+          done
+
+          cd "${RUNNER_TEMP}/configulator-docs"
+          if [[ -n $(find . -mindepth 1 ! -type f ! -type d) ]]; then
+            echo "::error::artifact holds something other than regular files and directories"
+            exit 1
+          fi
+          while IFS= read -r -d '' entry; do
+            entry=${entry#./}
+            ok=false
+            for a in "${allowed[@]}"; do
+              [[ $entry == "$a" ]] && ok=true
+            done
+            if [[ $ok != true ]]; then
+              echo "::error::artifact holds an undeclared path: ${entry}"
+              exit 1
+            fi
+          done < <(find . -mindepth 1 -print0)
+          for p in "${paths[@]}"; do
+            if [[ -L $p || ! -f $p ]]; then
+              echo "::error::${p} is missing from the artifact or is not a regular file"
+              exit 1
+            fi
+            if [[ $(stat -c %s -- "$p") -gt 1048576 ]]; then
+              echo "::error::${p} is larger than 1 MiB"
+              exit 1
+            fi
+          done
+          {
+            echo "paths<<EOF"
+            printf '%s\n' "${paths[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.app-key }}
+          permission-contents: write
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.BRANCH }}
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - env:
+          PATHS: ${{ steps.verify.outputs.paths }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PULL_REQUEST: ${{ github.event_name == 'pull_request' }}
+        run: |
+          set -euo pipefail
+          src="${RUNNER_TEMP}/configulator-docs"
+          paths=()
+          while IFS= read -r p; do
+            [[ -n $p ]] && paths+=("$p")
+          done <<< "$PATHS"
+          name="${APP_SLUG}[bot]"
+          email="$(gh api "users/${APP_SLUG}%5Bbot%5D" --jq .id)+${name}@users.noreply.github.com"
+          git config user.name "$name"
+          git config user.email "$email"
+          message="docs: update generated config docs [skip ci]"
+          # A pull request needs checks on its new head commit, or it can't merge.
+          if [[ $PULL_REQUEST == true ]]; then
+            message="docs: update generated config docs"
+          fi
+
+          for attempt in 1 2 3 4 5; do
+            git fetch --quiet origin "refs/heads/${BRANCH}"
+            tip=$(git rev-parse FETCH_HEAD)
+            # Commits from anyone but this app after the generated commit,
+            # such as a rebase or a new push, start their own run, which
+            # generates from the newer code. Leave the branch to that run.
+            if ! git merge-base --is-ancestor "$BASE" "$tip" ||
+              [[ -n $(git log --format=%ae "${BASE}..${tip}" | grep -vxF "$email" || true) ]]; then
+              echo "::notice::${BRANCH} moved past ${BASE}; leaving the update to the run for the new commits"
+              exit 0
+            fi
+            git reset --quiet --hard "$tip"
+
+            for p in "${paths[@]}"; do
+              part=
+              IFS=/ read -ra parts <<< "$p"
+              for c in "${parts[@]}"; do
+                part=${part:+$part/}$c
+                if [[ -L $part ]]; then
+                  echo "::error::${part} is a symlink in ${BRANCH}"
+                  exit 1
+                fi
+              done
+              if [[ -e $p && ! -f $p ]]; then
+                echo "::error::${p} is not a regular file in ${BRANCH}"
+                exit 1
+              fi
+              if [[ -e $p ]]; then
+                cat -- "${src}/${p}" > "$p"
+              else
+                mkdir -p -- "$(dirname "$p")"
+                install -m 0644 -- "${src}/${p}" "$p"
+              fi
+            done
+
+            git add -- "${paths[@]}"
+            if git diff --cached --quiet; then
+              echo "generated config docs unchanged, nothing to commit"
+              exit 0
+            fi
+            changed=$(git diff --cached --name-only)
+            if [[ -n $(grep -vxF -f <(printf '%s\n' "${paths[@]}") <<< "$changed" || true) ]] ||
+              ! git diff --cached --raw --no-abbrev |
+                awk '{ o = substr($1, 2); n = $2; if (n != o && !(o == "000000" && n == "100644")) bad = 1 } END { exit bad }'; then
+              echo "::error::refusing to commit unexpected changes"
+              git diff --cached --raw
+              exit 1
+            fi
+
+            git commit --quiet -m "$message"
+            if git push --quiet origin "HEAD:refs/heads/${BRANCH}"; then
+              echo "pushed on attempt ${attempt}"
+              exit 0
+            fi
+            echo "push rejected on attempt ${attempt}, retrying"
+          done
+          echo "::error::could not push the config docs update after 5 attempts"
+          exit 1
