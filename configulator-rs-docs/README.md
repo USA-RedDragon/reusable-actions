@@ -72,7 +72,7 @@ steps:
 | `sample-file` | `config.example.yaml` | Sample config file to generate. Empty skips it |
 | `sample-format` | `yaml` | `yaml`, `json` or `toml` |
 | `env-prefix` | `''` | Environment variable prefix shown in the table |
-| `env-separator` | `__` | Environment variable separator shown in the table |
+| `env-separator` | `_` | Environment variable separator shown in the table |
 | `flag-separator` | `.` | Flag separator shown in the table |
 | `working-directory` | `.` | Directory with the Cargo.lock that pins configulator-rs |
 | `version` | from `Cargo.lock` | configulator-cli version to install |

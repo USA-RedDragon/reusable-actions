@@ -35,7 +35,7 @@ inputs:
     default: ''
   env-separator:
     description: Environment variable separator shown in the table.
-    default: '__'
+    default: '_'
   flag-separator:
     description: Flag separator shown in the table.
     default: '.'
@@ -150,7 +150,7 @@ runs:
         esac
         if [[ $commit != true ]]; then
           if [[ -n $FILE ]]; then
-            echo "::error::Generated config docs are out of date. To update, run: configulator --dir ${DIR} --type ${TYPE} --markdown --markdown-file ${FILE}"
+            echo "::error::Generated config docs are out of date. To update, run: configulator --dir ${DIR} --type ${TYPE} --markdown --markdown-file ${FILE} --env-prefix '${ENV_PREFIX}' --env-separator '${ENV_SEPARATOR}' --flag-separator '${FLAG_SEPARATOR}'"
           fi
           if [[ -n $SAMPLE_FILE ]]; then
             echo "::error::Generated config docs are out of date. To update, run: configulator --dir ${DIR} --type ${TYPE} --sample --sample-file ${SAMPLE_FILE} --format ${SAMPLE_FORMAT}"
