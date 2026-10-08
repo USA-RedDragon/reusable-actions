@@ -20,6 +20,7 @@ inputs:
     description: >-
       Markdown file holding the `<!-- configulator:begin -->` and
       `<!-- configulator:end -->` markers, relative to `working-directory`.
+      Empty skips it.
     default: README.md
   sample-file:
     description: >-
@@ -111,8 +112,10 @@ runs:
 
         render() {
           local rc=0
-          configulator --dir "$DIR" --type "$TYPE" --markdown --markdown-file "$FILE" \
-            --env-prefix "$ENV_PREFIX" --env-separator "$ENV_SEPARATOR" --flag-separator "$FLAG_SEPARATOR" "$@" || rc=1
+          if [[ -n $FILE ]]; then
+            configulator --dir "$DIR" --type "$TYPE" --markdown --markdown-file "$FILE" \
+              --env-prefix "$ENV_PREFIX" --env-separator "$ENV_SEPARATOR" --flag-separator "$FLAG_SEPARATOR" "$@" || rc=1
+          fi
           if [[ -n $SAMPLE_FILE ]]; then
             configulator --dir "$DIR" --type "$TYPE" --sample --sample-file "$SAMPLE_FILE" \
               --format "$SAMPLE_FORMAT" "$@" || rc=1
@@ -137,9 +140,11 @@ runs:
             ;;
         esac
         if [[ $commit != true ]]; then
-          echo "::error::generated config docs are out of date. Run: configulator --dir ${DIR} --type ${TYPE} --markdown --markdown-file ${FILE}"
+          if [[ -n $FILE ]]; then
+            echo "::error::Generated config docs are out of date. To update, run: configulator --dir ${DIR} --type ${TYPE} --markdown --markdown-file ${FILE}"
+          fi
           if [[ -n $SAMPLE_FILE ]]; then
-            echo "::error::and: configulator --dir ${DIR} --type ${TYPE} --sample --sample-file ${SAMPLE_FILE} --format ${SAMPLE_FORMAT}"
+            echo "::error::Generated config docs are out of date. To update, run: configulator --dir ${DIR} --type ${TYPE} --sample --sample-file ${SAMPLE_FILE} --format ${SAMPLE_FORMAT}"
           fi
           exit 1
         fi
@@ -165,7 +170,10 @@ runs:
         git config user.name "$GIT_USER_NAME"
         git config user.email "$GIT_USER_EMAIL"
         branch=${GITHUB_REF#refs/heads/}
-        files=("$FILE")
+        files=()
+        if [[ -n $FILE ]]; then
+          files+=("$FILE")
+        fi
         if [[ -n $SAMPLE_FILE ]]; then
           files+=("$SAMPLE_FILE")
         fi
@@ -178,8 +186,10 @@ runs:
           git fetch --quiet origin "$branch"
           git reset --quiet --hard FETCH_HEAD
 
-          configulator --dir "$DIR" --type "$TYPE" --markdown --markdown-file "$FILE" \
-            --env-prefix "$ENV_PREFIX" --env-separator "$ENV_SEPARATOR" --flag-separator "$FLAG_SEPARATOR"
+          if [[ -n $FILE ]]; then
+            configulator --dir "$DIR" --type "$TYPE" --markdown --markdown-file "$FILE" \
+              --env-prefix "$ENV_PREFIX" --env-separator "$ENV_SEPARATOR" --flag-separator "$FLAG_SEPARATOR"
+          fi
           if [[ -n $SAMPLE_FILE ]]; then
             configulator --dir "$DIR" --type "$TYPE" --sample --sample-file "$SAMPLE_FILE" \
               --format "$SAMPLE_FORMAT"

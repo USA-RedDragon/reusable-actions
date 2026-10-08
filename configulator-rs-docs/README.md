@@ -68,7 +68,7 @@ steps:
 | --- | --- | --- |
 | `type` | (required) | Config root type, as passed to `configulator --type` |
 | `dir` | `.` | Directory scanned for the type's source |
-| `file` | `README.md` | Markdown file holding the markers |
+| `file` | `README.md` | Markdown file holding the markers. Empty skips it |
 | `sample-file` | `config.example.yaml` | Sample config file to generate. Empty skips it |
 | `sample-format` | `yaml` | `yaml`, `json` or `toml` |
 | `env-prefix` | `''` | Environment variable prefix shown in the table |
