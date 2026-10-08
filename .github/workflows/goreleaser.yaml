@@ -75,9 +75,9 @@ jobs:
       - run: go generate ./...
 
       - name: Release
-        uses: goreleaser/goreleaser-action@v5
+        uses: goreleaser/goreleaser-action@v7
         with:
-          version: latest
+          version: '~> v2'
           args: release --clean ${{ inputs.beta && '--snapshot' || '' }} ${{ inputs.extra-args }}
         env:
           GITHUB_TOKEN: ${{ secrets.github_token }}
@@ -103,5 +103,3 @@ jobs:
 
           docker manifest create "$REPO:beta" "${IMAGES[@]}"
           docker manifest push "$REPO:beta"
-
-      - uses: creekorful/goreportcard-action@v1.0
