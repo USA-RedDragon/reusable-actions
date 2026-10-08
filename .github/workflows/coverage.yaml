@@ -1,0 +1,330 @@
+name: Coverage
+
+# Coverage badge, baseline and pull request comment from a report that the
+# caller's test job uploaded as an artifact. The report job reads the report
+# with a read-only token and no app token. The commit job holds the app token,
+# runs no repository code, and only writes the badge and baseline from the
+# report job's artifact, on pushes to the default branch.
+
+on:
+  workflow_call:
+    inputs:
+      artifact:
+        description: Name of the artifact, uploaded earlier in the run, that holds the coverage report.
+        type: string
+        required: true
+      file:
+        description: Path of the coverage report inside the artifact.
+        type: string
+        required: true
+      format:
+        description: Report format, `auto`, `lcov` or `go`.
+        type: string
+        default: auto
+      strip-prefix:
+        description: Prefix to remove from the report's paths. Empty guesses from the checkout.
+        type: string
+        default: ''
+      working-directory:
+        description: Directory the report's paths, the badge and the baseline are relative to.
+        type: string
+        default: '.'
+      badge:
+        description: Where to write the badge SVG. Empty disables it.
+        type: string
+        default: .github/badges/coverage.svg
+      baseline:
+        description: Where to write the per-file baseline. Empty disables it.
+        type: string
+        default: .github/coverage-baseline.tsv
+      label:
+        description: Left-hand text on the badge.
+        type: string
+        default: coverage
+      thresholds:
+        description: '`green,yellow` percentages for the badge color.'
+        type: string
+        default: '80,60'
+      comment:
+        description: Post the coverage summary as a pull request comment.
+        type: boolean
+        default: true
+      marker:
+        description: Hidden marker for the pull request comment. Give each report in a repository its own.
+        type: string
+        default: coverage-comment
+      job-summary:
+        description: Also write the coverage summary to the job summary.
+        type: boolean
+        default: true
+      fail-under:
+        description: Fail if total coverage is below this percentage. Empty never fails.
+        type: string
+        default: ''
+      if-no-file:
+        description: '`error`, or `warn` to skip reporting when the report is missing or empty.'
+        type: string
+        default: error
+      app-id:
+        description: ID of the GitHub App that commits the badge and baseline.
+        type: string
+        required: true
+    secrets:
+      app-key:
+        description: Private key of the GitHub App that commits the badge and baseline.
+        required: false
+    outputs:
+      percent:
+        description: Total coverage percentage, to one decimal place.
+        value: ${{ jobs.report.outputs.percent }}
+
+permissions: {}
+
+jobs:
+  report:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write
+    outputs:
+      percent: ${{ steps.coverage.outputs.percent }}
+      changed: ${{ steps.stage.outputs.changed }}
+      base: ${{ steps.base.outputs.sha }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    env:
+      DEFAULT_PUSH: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.artifact }}
+          path: ${{ runner.temp }}/coverage-report
+
+      # The coverage action is pinned to a commit of this repository, since a
+      # reusable workflow can't refer to its own ref. Bump it with the action.
+      - id: coverage
+        uses: USA-RedDragon/reusable-actions/coverage@aef93b8a496b9fab10f712bfa25aeec90ebb6f75
+        with:
+          file: ${{ runner.temp }}/coverage-report/${{ inputs.file }}
+          format: ${{ inputs.format }}
+          strip-prefix: ${{ inputs.strip-prefix }}
+          working-directory: ${{ inputs.working-directory }}
+          badge: ${{ inputs.badge }}
+          baseline: ${{ inputs.baseline }}
+          label: ${{ inputs.label }}
+          thresholds: ${{ inputs.thresholds }}
+          comment: ${{ inputs.comment }}
+          marker: ${{ inputs.marker }}
+          job-summary: ${{ inputs.job-summary }}
+          fail-under: ${{ inputs.fail-under }}
+          if-no-file: ${{ inputs.if-no-file }}
+          commit: ${{ env.DEFAULT_PUSH == 'true' && 'write' || 'false' }}
+
+      - id: stage
+        if: ${{ env.DEFAULT_PUSH == 'true' && steps.coverage.outputs.percent != '' }}
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+          BADGE: ${{ inputs.badge }}
+          BASELINE: ${{ inputs.baseline }}
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/coverage-commit"
+          mkdir -p "$out"
+          changed=false
+          for f in "$BADGE" "$BASELINE"; do
+            [[ -n $f ]] || continue
+            path=$(realpath -m -s --relative-to=. "${WORKING_DIRECTORY}/${f}")
+            if [[ -n $(git status --porcelain -- "$path") ]]; then
+              changed=true
+            fi
+            mkdir -p "$out/$(dirname "$path")"
+            cp -- "$path" "$out/$path"
+          done
+          echo "changed=${changed}" >> "$GITHUB_OUTPUT"
+
+      - id: upload
+        if: ${{ steps.stage.outputs.changed == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-commit-${{ inputs.marker }}
+          path: ${{ runner.temp }}/coverage-commit/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  commit:
+    needs: report
+    if: needs.report.outputs.changed == 'true' && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    permissions: {}
+    concurrency:
+      group: coverage-commit-${{ inputs.marker }}-${{ github.ref_name }}
+      cancel-in-progress: false
+    env:
+      BRANCH: ${{ github.event.repository.default_branch }}
+      BASE: ${{ needs.report.outputs.base }}
+      WORKING_DIRECTORY: ${{ inputs.working-directory }}
+      BADGE: ${{ inputs.badge }}
+      BASELINE: ${{ inputs.baseline }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.report.outputs.artifact-id }}
+          path: ${{ runner.temp }}/coverage-commit
+
+      # The artifact came from a job that ran repository code, so it may hold
+      # anything. Accept only the declared files, as regular files.
+      - id: verify
+        run: |
+          set -euo pipefail
+          paths=()
+          for f in "$BADGE" "$BASELINE"; do
+            [[ -n $f ]] || continue
+            path=$(realpath -m -s --relative-to=/repo "/repo/${WORKING_DIRECTORY}/${f}")
+            if [[ $path == .. || $path == ../* || $path == . || $path == .git || $path == .git/* || $path == .github || $path == .github/* ]]; then
+              echo "::error::refusing to write ${path}"
+              exit 1
+            fi
+            paths+=("$path")
+          done
+          if [[ ${#paths[@]} -eq 2 && ${paths[0]} == "${paths[1]}" ]]; then
+            echo "::error::badge and baseline are the same path"
+            exit 1
+          fi
+
+          allowed=()
+          for p in "${paths[@]}"; do
+            allowed+=("$p")
+            d=$(dirname "$p")
+            while [[ $d != . ]]; do
+              allowed+=("$d")
+              d=$(dirname "$d")
+            done
+          done
+
+          cd "${RUNNER_TEMP}/coverage-commit"
+          if [[ -n $(find . -mindepth 1 ! -type f ! -type d) ]]; then
+            echo "::error::artifact holds something other than regular files and directories"
+            exit 1
+          fi
+          while IFS= read -r -d '' entry; do
+            entry=${entry#./}
+            ok=false
+            for a in "${allowed[@]}"; do
+              [[ $entry == "$a" ]] && ok=true
+            done
+            if [[ $ok != true ]]; then
+              echo "::error::artifact holds an undeclared path: ${entry}"
+              exit 1
+            fi
+          done < <(find . -mindepth 1 -print0)
+          for p in "${paths[@]}"; do
+            if [[ -L $p || ! -f $p ]]; then
+              echo "::error::${p} is missing from the artifact or is not a regular file"
+              exit 1
+            fi
+            if [[ $(stat -c %s -- "$p") -gt 1048576 ]]; then
+              echo "::error::${p} is larger than 1 MiB"
+              exit 1
+            fi
+          done
+          {
+            echo "paths<<EOF"
+            printf '%s\n' "${paths[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.app-key }}
+          permission-contents: write
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.BRANCH }}
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - env:
+          PATHS: ${{ steps.verify.outputs.paths }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          src="${RUNNER_TEMP}/coverage-commit"
+          paths=()
+          while IFS= read -r p; do
+            [[ -n $p ]] && paths+=("$p")
+          done <<< "$PATHS"
+          name="${APP_SLUG}[bot]"
+          email="$(gh api "users/${APP_SLUG}%5Bbot%5D" --jq .id)+${name}@users.noreply.github.com"
+          git config user.name "$name"
+          git config user.email "$email"
+          message="chore: update coverage badge and baseline [skip ci]"
+
+          for attempt in 1 2 3 4 5; do
+            git fetch --quiet origin "refs/heads/${BRANCH}"
+            tip=$(git rev-parse FETCH_HEAD)
+            # Commits from anyone but this app after the tested commit start
+            # their own run, which measures the newer code. Leave the branch
+            # to that run.
+            if ! git merge-base --is-ancestor "$BASE" "$tip" ||
+              [[ -n $(git log --format=%ae "${BASE}..${tip}" | grep -vxF "$email" || true) ]]; then
+              echo "::notice::${BRANCH} moved past ${BASE}; leaving the update to the run for the new commits"
+              exit 0
+            fi
+            git reset --quiet --hard "$tip"
+
+            for p in "${paths[@]}"; do
+              part=
+              IFS=/ read -ra parts <<< "$p"
+              for c in "${parts[@]}"; do
+                part=${part:+$part/}$c
+                if [[ -L $part ]]; then
+                  echo "::error::${part} is a symlink in ${BRANCH}"
+                  exit 1
+                fi
+              done
+              if [[ -e $p && ! -f $p ]]; then
+                echo "::error::${p} is not a regular file in ${BRANCH}"
+                exit 1
+              fi
+              if [[ -e $p ]]; then
+                cat -- "${src}/${p}" > "$p"
+              else
+                mkdir -p -- "$(dirname "$p")"
+                install -m 0644 -- "${src}/${p}" "$p"
+              fi
+            done
+
+            git add -- "${paths[@]}"
+            if git diff --cached --quiet; then
+              echo "coverage unchanged, nothing to commit"
+              exit 0
+            fi
+            changed=$(git diff --cached --name-only)
+            if [[ -n $(grep -vxF -f <(printf '%s\n' "${paths[@]}") <<< "$changed" || true) ]] ||
+              ! git diff --cached --raw --no-abbrev |
+                awk '{ o = substr($1, 2); n = $2; if (n != o && !(o == "000000" && n == "100644")) bad = 1 } END { exit bad }'; then
+              echo "::error::refusing to commit unexpected changes"
+              git diff --cached --raw
+              exit 1
+            fi
+
+            git commit --quiet -m "$message"
+            if git push --quiet origin "HEAD:refs/heads/${BRANCH}"; then
+              echo "pushed on attempt ${attempt}"
+              exit 0
+            fi
+            echo "push rejected on attempt ${attempt}, retrying"
+          done
+          echo "::error::could not push the coverage update after 5 attempts"
+          exit 1

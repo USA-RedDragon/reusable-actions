@@ -8,6 +8,8 @@ Called with `uses:` at the job level. These live in `.github/workflows/`.
 
 - `docker-ci.yaml` - Docker Build and optional push to GHCR
 - `goreleaser.yaml` - Release a new version of a Go project using [goreleaser](https://goreleaser.com/)
+- `configulator-docs.yaml` - Regenerate configulator docs and commit them from a job that runs no repository code
+- `coverage.yaml` - Coverage badge, baseline and comment, committed from a job that runs no repository code
 
 ```yaml
 jobs:
@@ -68,6 +70,59 @@ composite actions: `type`, `dir`, `file`, `sample-file`, `sample-format`,
 `env-prefix`, `env-separator`, `flag-separator`, `working-directory`, plus
 `go-version-file` for Go and `version` for Rust. The app needs contents
 write access and must be allowed to push to the target branches.
+
+### coverage workflow
+
+`coverage.yaml` runs the [`coverage`](coverage) action on a report that an
+earlier job in the same run uploaded as an artifact. Keep running the tests
+in your own job, with no app token and `persist-credentials: false`, and
+upload the report:
+
+- `report` downloads the report, posts the pull request comment with
+  `github.token`, and on pushes to the default branch writes the badge and
+  baseline and uploads them when they changed.
+- `commit` runs only on pushes to the default branch when they changed. It
+  never runs repository code. It checks that the artifact holds only the
+  badge and baseline, as regular files, mints the app token, and commits
+  them with `[skip ci]`.
+
+```yaml
+jobs:
+  unit-tests-coverage:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go test ./... -coverprofile coverage.out -coverpkg=./... -covermode atomic
+      - uses: actions/upload-artifact@v7
+        with:
+          name: backend-coverage
+          path: coverage.out
+
+  coverage:
+    needs: unit-tests-coverage
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: USA-RedDragon/reusable-actions/.github/workflows/coverage.yaml@v2
+    with:
+      artifact: backend-coverage
+      file: coverage.out
+      app-id: ${{ vars.AUTO_COMMIT_APP_ID }}
+    secrets:
+      app-key: ${{ secrets.AUTO_COMMIT_APP_KEY }}
+```
+
+The other inputs match the action's: `format`, `strip-prefix`,
+`working-directory`, `badge`, `baseline`, `label`, `thresholds`, `comment`,
+`marker`, `job-summary`, `fail-under` and `if-no-file`. Give each call its
+own `marker` when a run reports more than one coverage file.
 
 ## Composite actions
 
