@@ -187,7 +187,7 @@ jobs:
           for f in "$BADGE" "$BASELINE"; do
             [[ -n $f ]] || continue
             path=$(realpath -m -s --relative-to=/repo "/repo/${WORKING_DIRECTORY}/${f}")
-            if [[ $path == .. || $path == ../* || $path == . || $path == .git || $path == .git/* || $path == .github || $path == .github/* ]]; then
+            if [[ $path == .. || $path == ../* || $path == . || $path == .git || $path == .git/* || $path == .github/workflows || $path == .github/workflows/* ]]; then
               echo "::error::refusing to write ${path}"
               exit 1
             fi
