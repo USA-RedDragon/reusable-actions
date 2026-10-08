@@ -43,6 +43,27 @@ jobs:
 `contents: write` is only needed for the commit. With `commit: 'false'` the
 action only checks.
 
+The commit is pushed with the credentials `actions/checkout` left behind. If
+the default branch is protected, check out with a token that may bypass the
+protection, such as a GitHub App's:
+
+```yaml
+steps:
+  - id: app-token
+    uses: actions/create-github-app-token@v3
+    with:
+      client-id: ${{ vars.AUTO_COMMIT_APP_ID }}
+      private-key: ${{ secrets.AUTO_COMMIT_APP_KEY }}
+  - uses: actions/checkout@v4
+    with:
+      token: ${{ steps.app-token.outputs.token }}
+  - uses: USA-RedDragon/reusable-actions/configulator-docs@v2
+    with:
+      type: Config
+      git-user-name: my-app[bot]
+      git-user-email: my-app[bot]@users.noreply.github.com
+```
+
 ## Inputs
 
 | Input | Default | Description |
