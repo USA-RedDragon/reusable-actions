@@ -10,6 +10,7 @@ Called with `uses:` at the job level. These live in `.github/workflows/`.
 - `goreleaser.yaml` - Release a new version of a Go project using [goreleaser](https://goreleaser.com/)
 - `configulator-docs.yaml` - Regenerate configulator docs and commit them from a job that runs no repository code
 - `coverage.yaml` - Coverage badge, baseline and comment, committed from a job that runs no repository code
+- `docgen.yaml` - Fill the [docgen](https://github.com/USA-RedDragon/docgen) markers and diagrams, and commit them from a job that runs no repository code
 
 ```yaml
 jobs:
@@ -123,6 +124,71 @@ The other inputs match the action's: `format`, `strip-prefix`,
 `working-directory`, `badge`, `baseline`, `label`, `thresholds`, `comment`,
 `marker`, `job-summary`, `fail-under` and `if-no-file`. Give each call its
 own `marker` when a run reports more than one coverage file.
+
+### docgen workflow
+
+`docgen.yaml` runs `docgen update` from
+[docgen](https://github.com/USA-RedDragon/docgen), which fills the markers of
+the Markdown pages and the generated SVG diagrams from the Go code. It
+commits the update with a GitHub App token on pushes to the default branch
+and on pull requests from branches in the same repository, such as
+Renovate's.
+
+It runs as two jobs:
+
+- `generate` checks out with a read-only token and no stored credentials,
+  sets up Go from `go-version-file`, runs `docgen update` and uploads the
+  changed files. It uploads only the tracked Markdown pages that changed and
+  the SVG diagrams that are new or changed; other changes that the build or
+  tests leave stay out. It fails with the diff when the docs are stale and
+  can't be committed, such as on a pull request from a fork.
+- `commit` runs only when `generate` found stale docs and committing is
+  allowed. It never runs repository code. It checks that the artifact holds
+  only regular files with an extension of `extensions`, each inside the
+  repository, outside `.git` and `.github`, at most 1 MiB, and at most
+  `max-files` of them. Then it mints the app token, writes the files to the
+  pull request branch or the default branch and pushes. Default branch
+  commits carry `[skip ci]`. Pull request commits don't, so checks run on
+  the new head.
+
+With no `version`, the workflow runs `go tool docgen`, so the go.mod in
+`working-directory` must pin docgen as a tool:
+
+```sh
+go get -tool github.com/USA-RedDragon/docgen@v0.1.0
+```
+
+A `version` such as `v0.1.0` runs `go run github.com/USA-RedDragon/docgen@v0.1.0`
+instead, and needs no change to go.mod.
+
+```yaml
+name: Docs
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions: {}
+
+jobs:
+  docgen:
+    permissions:
+      contents: read
+    uses: USA-RedDragon/reusable-actions/.github/workflows/docgen.yaml@v2
+    with:
+      app-id: ${{ vars.AUTO_COMMIT_APP_ID }}
+    secrets:
+      app-key: ${{ secrets.AUTO_COMMIT_APP_KEY }}
+```
+
+`directory`, `module`, `tags` and `jobs` are the directory argument and the
+flags of the same name. Empty adds nothing, so the settings of
+`.docgen.yaml` apply. The output `stale` is `true` when a page or diagram
+was out of date. `dry-run: true` prints the diff and sets `stale`, but
+neither fails nor commits. The app needs contents write access and must be
+allowed to push to the target branches.
 
 ## Composite actions
 

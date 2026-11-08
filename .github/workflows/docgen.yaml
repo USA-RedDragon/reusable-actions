@@ -1,0 +1,395 @@
+name: docgen
+
+# Fills the docgen markers of the Markdown pages and the generated SVG
+# diagrams. The generate job runs docgen, which builds and runs repository
+# code, so it gets a read-only token and no app token. The commit job holds
+# the app token, runs no repository code, and only writes the pages and
+# diagrams from the generate job's artifact.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: >-
+          docgen version to run with `go run`, such as `v0.1.0`. Empty runs
+          `go tool docgen`, so the go.mod in `working-directory` must pin
+          docgen with a `tool` directive.
+        type: string
+        default: ''
+      directory:
+        description: Directory to scan, relative to `working-directory`. Empty uses the `docs` setting of .docgen.yaml.
+        type: string
+        default: ''
+      module:
+        description: Directory of the Go module, relative to the repository root. Empty uses the `module` setting.
+        type: string
+        default: ''
+      tags:
+        description: Comma-separated build tags. Empty uses the `tags` setting.
+        type: string
+        default: ''
+      jobs:
+        description: The `-p` of each go command. Empty uses the `jobs` setting.
+        type: string
+        default: ''
+      working-directory:
+        description: Directory that docgen runs in, with the go.mod that pins docgen when `version` is empty.
+        type: string
+        default: '.'
+      go-version-file:
+        description: Passed to actions/setup-go, relative to the repository root.
+        type: string
+        default: go.mod
+      extensions:
+        description: Comma-separated file extensions that the commit job may write.
+        type: string
+        default: md,svg
+      max-files:
+        description: Most files that the commit job may write in one commit.
+        type: string
+        default: '200'
+      dry-run:
+        description: Print the diff, set `stale` and upload the artifact, but neither fail nor commit. For tests.
+        type: boolean
+        default: false
+      app-id:
+        description: ID of the GitHub App that commits the update.
+        type: string
+        required: true
+    secrets:
+      app-key:
+        description: Private key of the GitHub App that commits the update.
+        required: false
+    outputs:
+      stale:
+        description: '`true` if a generated page or diagram was out of date.'
+        value: ${{ jobs.generate.outputs.stale }}
+
+permissions: {}
+
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      stale: ${{ steps.stage.outputs.stale }}
+      base: ${{ steps.base.outputs.sha }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ inputs.go-version-file }}
+
+      # A set version runs that docgen version with go run, and the Go
+      # checksum database checks the download. An empty version runs the
+      # docgen that the tool directive of go.mod pins, and go.sum checks it.
+      - working-directory: ${{ inputs.working-directory }}
+        env:
+          VERSION: ${{ inputs.version }}
+          DIRECTORY: ${{ inputs.directory }}
+          MODULE: ${{ inputs.module }}
+          TAGS: ${{ inputs.tags }}
+          JOBS: ${{ inputs.jobs }}
+        run: |
+          set -euo pipefail
+          if [[ -n $VERSION ]]; then
+            docgen=(go run "github.com/USA-RedDragon/docgen@${VERSION}")
+          elif go mod edit -json | jq -e 'any(.Tool[]?; .Path == "github.com/USA-RedDragon/docgen")' > /dev/null; then
+            docgen=(go tool docgen)
+          else
+            echo "::error::version is empty and the go.mod of ${PWD} has no tool directive for docgen. Set version, or add one with: go get -tool github.com/USA-RedDragon/docgen@<version>"
+            exit 1
+          fi
+
+          args=(update)
+          if [[ -n $MODULE ]]; then args+=(-module "$MODULE"); fi
+          if [[ -n $TAGS ]]; then args+=(-tags "$TAGS"); fi
+          if [[ -n $JOBS ]]; then args+=(-jobs "$JOBS"); fi
+          if [[ -n $DIRECTORY ]]; then args+=("$DIRECTORY"); fi
+          "${docgen[@]}" "${args[@]}"
+
+      # docgen changes only pages, which git already tracks, and diagrams,
+      # which can be new. Stage only those, so that other files that the
+      # build or the tests left behind stay out of the commit.
+      - id: stage
+        env:
+          EXTENSIONS: ${{ inputs.extensions }}
+          DRY_RUN: ${{ inputs.dry-run }}
+          CAN_COMMIT: ${{ (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
+        run: |
+          set -euo pipefail
+          if ! [[ $EXTENSIONS =~ ^[A-Za-z0-9]+(,[A-Za-z0-9]+)*$ ]]; then
+            echo "::error::extensions is '${EXTENSIONS}'; it must be a comma-separated list such as md,svg"
+            exit 1
+          fi
+          IFS=, read -ra exts <<< "$EXTENSIONS"
+          allowed() {
+            local name=${1##*/} e
+            [[ $name == *.* ]] || return 1
+            for e in "${exts[@]}"; do
+              [[ ${name##*.} == "$e" ]] && return 0
+            done
+            return 1
+          }
+
+          changed=()
+          added=()
+          skipped=()
+          while IFS= read -r -d '' entry; do
+            status=${entry:0:2}
+            path=${entry:3}
+            if [[ -L $path || ! -f $path ]]; then
+              skipped+=("$path")
+            elif [[ $status == ' M' ]] && allowed "$path"; then
+              changed+=("$path")
+            elif [[ $status == '??' && $path == *.svg ]] && allowed "$path"; then
+              added+=("$path")
+            else
+              skipped+=("$path")
+            fi
+          done < <(git status --porcelain=v1 -z --untracked-files=all)
+          if [[ ${#skipped[@]} -gt 0 ]]; then
+            echo "::notice::not staged, since docgen does not write them: ${skipped[*]}"
+          fi
+
+          paths=("${changed[@]}" "${added[@]}")
+          if [[ ${#paths[@]} -eq 0 ]]; then
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+            echo "generated docs are up to date"
+            exit 0
+          fi
+          echo "stale=true" >> "$GITHUB_OUTPUT"
+
+          if [[ ${#changed[@]} -gt 0 ]]; then
+            git --no-pager diff --stat -- "${changed[@]}"
+            git --no-pager diff -- "${changed[@]}"
+          fi
+          for f in "${added[@]}"; do
+            git --no-pager diff --no-index -- /dev/null "$f" || true
+          done
+          if [[ $DRY_RUN == true ]]; then
+            echo "::notice::Generated docs are out of date. dry-run is set, so nothing is committed; the diff is above."
+          elif [[ $CAN_COMMIT != true ]]; then
+            echo "::error::Generated docs are out of date. Run docgen update and commit the result; the diff is above."
+            exit 1
+          fi
+
+          out="${RUNNER_TEMP}/docgen"
+          mkdir -p "$out"
+          for p in "${paths[@]}"; do
+            mkdir -p -- "$out/$(dirname -- "$p")"
+            cp -- "$p" "$out/$p"
+          done
+          echo "upload=true" >> "$GITHUB_OUTPUT"
+
+      - id: upload
+        if: ${{ steps.stage.outputs.upload == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docgen
+          path: ${{ runner.temp }}/docgen/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  commit:
+    needs: generate
+    if: >-
+      !inputs.dry-run && needs.generate.outputs.stale == 'true' && (
+        (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) ||
+        (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      )
+    runs-on: ubuntu-24.04
+    permissions: {}
+    concurrency:
+      group: docgen-commit-${{ github.event.pull_request.head.ref || github.ref_name }}
+      cancel-in-progress: false
+    env:
+      BRANCH: ${{ github.event.pull_request.head.ref || github.event.repository.default_branch }}
+      BASE: ${{ needs.generate.outputs.base }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.generate.outputs.artifact-id }}
+          path: ${{ runner.temp }}/docgen
+
+      # The artifact came from a job that ran repository code, so it may hold
+      # anything. Accept only regular files with an allowed extension, inside
+      # the repository and outside .git and .github, of a bounded size and
+      # number.
+      - id: verify
+        env:
+          EXTENSIONS: ${{ inputs.extensions }}
+          MAX_FILES: ${{ inputs.max-files }}
+        run: |
+          set -euo pipefail
+          if ! [[ $EXTENSIONS =~ ^[A-Za-z0-9]+(,[A-Za-z0-9]+)*$ ]]; then
+            echo "::error::extensions is '${EXTENSIONS}'; it must be a comma-separated list such as md,svg"
+            exit 1
+          fi
+          if ! [[ $MAX_FILES =~ ^[1-9][0-9]{0,5}$ ]]; then
+            echo "::error::max-files is '${MAX_FILES}'; it must be a positive integer"
+            exit 1
+          fi
+          IFS=, read -ra exts <<< "$EXTENSIONS"
+
+          cd "${RUNNER_TEMP}/docgen"
+          if [[ -n $(find . -mindepth 1 ! -type f ! -type d) ]]; then
+            echo "::error::artifact holds something other than regular files and directories"
+            exit 1
+          fi
+          paths=()
+          while IFS= read -r -d '' entry; do
+            entry=${entry#./}
+            if [[ $entry == *[[:cntrl:]]* ]]; then
+              echo "::error::artifact holds a path with a control character"
+              exit 1
+            fi
+            path=$(realpath -m -s --relative-to=/repo "/repo/${entry}")
+            lower=${path,,}
+            if [[ $path != "$entry" || $lower == .. || $lower == ../* || $lower == .github || $lower == .github/* ]]; then
+              echo "::error::refusing to write ${entry}"
+              exit 1
+            fi
+            IFS=/ read -ra parts <<< "$lower"
+            for c in "${parts[@]}"; do
+              if [[ $c == .git ]]; then
+                echo "::error::refusing to write ${entry}"
+                exit 1
+              fi
+            done
+            name=${path##*/}
+            ok=false
+            if [[ $name == *.* ]]; then
+              for e in "${exts[@]}"; do
+                [[ ${name##*.} == "$e" ]] && ok=true
+              done
+            fi
+            if [[ $ok != true ]]; then
+              echo "::error::${path} does not have an extension of ${EXTENSIONS}"
+              exit 1
+            fi
+            if [[ $(stat -c %s -- "$path") -gt 1048576 ]]; then
+              echo "::error::${path} is larger than 1 MiB"
+              exit 1
+            fi
+            paths+=("$path")
+            if [[ ${#paths[@]} -gt $MAX_FILES ]]; then
+              echo "::error::artifact holds more than ${MAX_FILES} files"
+              exit 1
+            fi
+          done < <(find . -mindepth 1 -type f -print0)
+          if [[ ${#paths[@]} -eq 0 ]]; then
+            echo "::error::artifact holds no files"
+            exit 1
+          fi
+          {
+            echo "paths<<EOF"
+            printf '%s\n' "${paths[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.app-key }}
+          permission-contents: write
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.BRANCH }}
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - env:
+          PATHS: ${{ steps.verify.outputs.paths }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PULL_REQUEST: ${{ github.event_name == 'pull_request' }}
+        run: |
+          set -euo pipefail
+          src="${RUNNER_TEMP}/docgen"
+          paths=()
+          while IFS= read -r p; do
+            [[ -n $p ]] && paths+=("$p")
+          done <<< "$PATHS"
+          name="${APP_SLUG}[bot]"
+          email="$(gh api "users/${APP_SLUG}%5Bbot%5D" --jq .id)+${name}@users.noreply.github.com"
+          git config user.name "$name"
+          git config user.email "$email"
+          message="docs: update generated docs [skip ci]"
+          # A pull request needs checks on its new head commit, or it can't merge.
+          if [[ $PULL_REQUEST == true ]]; then
+            message="docs: update generated docs"
+          fi
+
+          for attempt in 1 2 3 4 5; do
+            git fetch --quiet origin "refs/heads/${BRANCH}"
+            tip=$(git rev-parse FETCH_HEAD)
+            # Commits from anyone but this app after the generated commit,
+            # such as a rebase or a new push, start their own run, which
+            # generates from the newer code. Leave the branch to that run.
+            if ! git merge-base --is-ancestor "$BASE" "$tip" ||
+              [[ -n $(git log --format=%ae "${BASE}..${tip}" | grep -vxF "$email" || true) ]]; then
+              echo "::notice::${BRANCH} moved past ${BASE}; leaving the update to the run for the new commits"
+              exit 0
+            fi
+            git reset --quiet --hard "$tip"
+
+            for p in "${paths[@]}"; do
+              part=
+              IFS=/ read -ra parts <<< "$p"
+              for c in "${parts[@]}"; do
+                part=${part:+$part/}$c
+                if [[ -L $part ]]; then
+                  echo "::error::${part} is a symlink in ${BRANCH}"
+                  exit 1
+                fi
+              done
+              if [[ -e $p && ! -f $p ]]; then
+                echo "::error::${p} is not a regular file in ${BRANCH}"
+                exit 1
+              fi
+              if [[ -e $p ]]; then
+                cat -- "${src}/${p}" > "$p"
+              else
+                mkdir -p -- "$(dirname "$p")"
+                install -m 0644 -- "${src}/${p}" "$p"
+              fi
+            done
+
+            git add -- "${paths[@]}"
+            if git diff --cached --quiet; then
+              echo "generated docs unchanged, nothing to commit"
+              exit 0
+            fi
+            # Only the artifact's paths, each a regular file of mode 100644,
+            # new or with the same mode as before.
+            changed=$(git diff --cached --name-only)
+            if [[ -n $(grep -vxF -f <(printf '%s\n' "${paths[@]}") <<< "$changed" || true) ]] ||
+              ! git diff --cached --raw --no-abbrev |
+                awk '{ o = substr($1, 2); n = $2; if (n != "100644" || (o != n && o != "000000")) bad = 1 } END { exit bad }'; then
+              echo "::error::refusing to commit unexpected changes"
+              git diff --cached --raw
+              exit 1
+            fi
+
+            git commit --quiet -m "$message"
+            if git push --quiet origin "HEAD:refs/heads/${BRANCH}"; then
+              echo "pushed on attempt ${attempt}"
+              exit 0
+            fi
+            echo "push rejected on attempt ${attempt}, retrying"
+          done
+          echo "::error::could not push the docs update after 5 attempts"
+          exit 1
