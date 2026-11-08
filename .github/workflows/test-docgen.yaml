@@ -1,0 +1,54 @@
+name: docgen
+
+# Runs the docgen workflow on the fixture in test/docgen, whose page is stale
+# on purpose. dry-run keeps the workflow from failing or committing, so the
+# check job can assert on the output and the artifact.
+
+on:
+  pull_request:
+
+concurrency:
+  group: '${{ github.workflow }} @ ${{ github.ref }}'
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  docgen:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/docgen.yaml
+    with:
+      # docgen has no release yet. Replace the commit with a release tag
+      # when one exists.
+      version: 467086e55bd31a2a8ee313dbf2a6aa07fa7aaa0e
+      working-directory: test/docgen
+      go-version-file: test/docgen/go.mod
+      dry-run: true
+      app-id: unused
+
+  check:
+    needs: docgen
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: docgen
+          path: ${{ runner.temp }}/docgen
+
+      - env:
+          STALE: ${{ needs.docgen.outputs.stale }}
+        run: |
+          set -euo pipefail
+          if [[ $STALE != true ]]; then
+            echo "::error::stale is '${STALE}'; want true"
+            exit 1
+          fi
+          cd "${RUNNER_TEMP}/docgen"
+          files=$(find . -mindepth 1 -type f | sort)
+          if [[ $files != ./test/docgen/README.md ]]; then
+            echo "::error::artifact holds ${files}; want only ./test/docgen/README.md"
+            exit 1
+          fi
+          grep -qF '<!-- docgen:const pkg=. name=Answer -->`42`<!-- /docgen:const -->' test/docgen/README.md
