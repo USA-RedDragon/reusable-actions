@@ -238,7 +238,7 @@ runs:
         fi
 
         # Retried against a moving branch. This step lands minutes after
-        # checkout, and the commit it makes carries `[skip ci]` so it moves the
+        # checkout, and the commit it makes carries `[skip actions]` so it moves the
         # branch without triggering the run that would have cancelled anyone,
         # meaning a plain push can be rejected non-fast-forward.
         #
@@ -271,7 +271,7 @@ runs:
             exit 0
           fi
 
-          git commit --quiet -m 'chore: update coverage badge and baseline [skip ci]'
+          git commit --quiet -m 'chore: update coverage badge and baseline [skip actions]'
           if git push --quiet origin "HEAD:${branch}"; then
             echo "pushed on attempt ${attempt}"
             exit 0

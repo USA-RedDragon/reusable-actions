@@ -63,7 +63,7 @@ updated in place, so a pushed branch does not accumulate a stack of them.
 
 On a **push to the default branch** it rewrites the badge and the baseline and
 commits them back, so the next pull request has something to compare against.
-That commit carries `[skip ci]`.
+That commit carries `[skip actions]`. GitHub runs no workflow for it, but other CI, such as a Cloudflare Pages Git build, does, because `[skip ci]` would also skip those. So a site that deploys from the default branch still builds the newest commit.
 
 Either way, the summary is written to the job summary too.
 

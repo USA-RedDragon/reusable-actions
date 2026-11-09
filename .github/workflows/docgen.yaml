@@ -327,7 +327,7 @@ jobs:
           email="$(gh api "users/${APP_SLUG}%5Bbot%5D" --jq .id)+${name}@users.noreply.github.com"
           git config user.name "$name"
           git config user.email "$email"
-          message="docs: update generated docs [skip ci]"
+          message="docs: update generated docs [skip actions]"
           # A pull request needs checks on its new head commit, or it can't merge.
           if [[ $PULL_REQUEST == true ]]; then
             message="docs: update generated docs"

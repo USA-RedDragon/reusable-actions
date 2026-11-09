@@ -37,7 +37,7 @@ It runs as two jobs:
   allowed. It never runs repository code. It checks that the artifact holds
   only the declared Markdown and example files, as regular files, mints the
   app token, writes the files to the pull request branch or the default
-  branch and pushes. Default branch commits carry `[skip ci]`. Pull request
+  branch and pushes. Default branch commits carry `[skip actions]`. Pull request
   commits don't, so checks run on the new head.
 
 ```yaml
@@ -85,7 +85,7 @@ upload the report:
 - `commit` runs only on pushes to the default branch when they changed. It
   never runs repository code. It checks that the artifact holds only the
   badge and baseline, as regular files, mints the app token, and commits
-  them with `[skip ci]`.
+  them with `[skip actions]`.
 
 ```yaml
 jobs:
@@ -148,7 +148,7 @@ It runs as two jobs:
   repository, outside `.git` and `.github`, at most 1 MiB, and at most
   `max-files` of them. Then it mints the app token, writes the files to the
   pull request branch or the default branch and pushes. Default branch
-  commits carry `[skip ci]`. Pull request commits don't, so checks run on
+  commits carry `[skip actions]`. Pull request commits don't, so checks run on
   the new head.
 
 With no `version`, the workflow runs `go tool docgen`, so the go.mod in

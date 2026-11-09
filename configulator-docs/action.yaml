@@ -193,7 +193,7 @@ runs:
             exit 0
           fi
 
-          git commit --quiet -m "docs: update generated config docs [skip ci]"
+          git commit --quiet -m "docs: update generated config docs [skip actions]"
           if git push --quiet origin "HEAD:${branch}"; then
             echo "pushed on attempt ${attempt}"
             exit 0
