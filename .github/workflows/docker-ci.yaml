@@ -59,7 +59,7 @@ on:
 
 jobs:
   docker-runners:
-    uses: USA-RedDragon/reusable-actions/.github/workflows/docker-runners.yaml@v2.0.19
+    uses: USA-RedDragon/reusable-actions/.github/workflows/docker-runners.yaml@v2.0.37
     if: ${{ inputs.qemu-arm64 == false }}
     with:
       image-name: ${{ inputs.image-name }}
@@ -78,7 +78,7 @@ jobs:
 
 
   docker-qemu:
-    uses: USA-RedDragon/reusable-actions/.github/workflows/docker-qemu.yaml@v2.0.19
+    uses: USA-RedDragon/reusable-actions/.github/workflows/docker-qemu.yaml@v2.0.37
     if: ${{ inputs.qemu-arm64 == true }}
     with:
       image-name: ${{ inputs.image-name }}
