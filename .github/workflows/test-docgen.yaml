@@ -19,9 +19,7 @@ jobs:
       contents: read
     uses: ./.github/workflows/docgen.yaml
     with:
-      # docgen has no release yet. Replace the commit with a release tag
-      # when one exists.
-      version: 467086e55bd31a2a8ee313dbf2a6aa07fa7aaa0e
+      version: v0.1.0
       working-directory: test/docgen
       go-version-file: test/docgen/go.mod
       dry-run: true
